@@ -1,2 +1,2 @@
 # flingapp-backend
-fling backend is a node.js postgraphql backend server for a fling app front-end.
+Fling-server is a node.js & postgraphql backend for a flingapp front-end.
