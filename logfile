@@ -1,2 +1,0 @@
-LOG:  syntax error in file "/Users/gregoryorton/Google Drive/Dev/db/postgres/postgresql.conf" line 59, near token ","
-FATAL:  configuration file "/Users/gregoryorton/Google Drive/Dev/db/postgres/postgresql.conf" contains errors
