@@ -1,0 +1,23 @@
+{
+  "name": "fling-server",
+  "version": "1.0.0",
+  "description": "a flingapp backend with postgraphQL",
+  "main": "app.js",
+  "repository": "git@github.com:ortonomy/fling-server.git",
+  "author": "ortonomy <app@ortonomy.co>",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "express": "^4.15.3",
+    "postgraphql": "^3.3.0"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.24.1",
+    "nodemon": "^1.11.0",
+    "babel-preset-env": "^1.6.0"
+  },
+  "scripts": {
+    "start": "nodemon lib/app.js --exec babel-node --presets env",
+    "build": "babel lib -d dist --presets env",
+    "serve": "node dist/app.js"
+  }
+}
