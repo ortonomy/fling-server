@@ -1,5 +1,6 @@
 # Logs
 logs
+logfile
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -61,4 +62,3 @@ typings/
 .DS_Store
 .*.DS_Store
 **/.DS_Store
-
