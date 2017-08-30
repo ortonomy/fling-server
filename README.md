@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="full_title_compact@2x.png" />
+</p>
+
 # flingapp-backend
 
 Fling-server is a node.js & postgraphql backend for a flingapp front-end -- available [here](https://github.com/ortonomy/flingapp-frontend)
