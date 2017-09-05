@@ -1,13 +1,13 @@
 -- set some variables for our new users
 \set flinguser 'flingapp'
+-- drop the app databse if it already exists
+DROP DATABASE IF EXISTS fling;
 
 -- create our database account and give it privileges
 DROP ROLE IF EXISTS :flinguser;
 CREATE ROLE :flinguser WITH LOGIN PASSWORD 'FlingAppMakesItEasy';
 ALTER ROLE :flinguser CREATEDB;
 
--- drop the app databse if it already exists
-DROP DATABASE IF EXISTS fling;
 -- create our awesome app db
 CREATE DATABASE fling WITH OWNER :flinguser;
 GRANT ALL PRIVILEGES ON DATABASE fling TO :flinguser;
@@ -17,8 +17,11 @@ DROP SCHEMA IF EXISTS flingapp;
 
 -- create the app schema and then create tables
 begin;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- must be superuser to add this extension
+CREATE EXTENSION IF NOT EXISTS pgcrypto; 
 CREATE SCHEMA IF NOT EXISTS flingapp AUTHORIZATION flingapp;
+--  we want the flingapp user to be the role that owns the tables so postgraphql has the correct permissions
+SET ROLE :flinguser;
 
 /* our core app users */
 CREATE TABLE flingapp.users(
@@ -29,6 +32,14 @@ CREATE TABLE flingapp.users(
    password TEXT NOT NULL,
    admin BOOLEAN DEFAULT false
 );
+-- comments for postgraphQL docs
+COMMENT ON TABLE flingapp.users IS 'A human user of flingapp';
+COMMENT ON COLUMN flingapp.users.id IS 'The universally unique ID of a user';
+COMMENT ON COLUMN flingapp.users.firstName IS 'The first, or given name, of a user';
+COMMENT ON COLUMN flingapp.users.lastName IS 'The family name, or last name, of a user';
+COMMENT ON COLUMN flingapp.users.email IS 'The UNIQUE email address of a user - a user cannot register with the same email twice.';
+COMMENT ON COLUMN flingapp.users.password IS 'This is a salted hash of a user''s password. We never store the password directly.';
+COMMENT ON COLUMN flingapp.users.admin IS 'Whether the user is an admin of their organization or not.';
 
 /* an organization that is using flingapp */
 CREATE TABLE flingapp.organizations(
@@ -37,6 +48,12 @@ CREATE TABLE flingapp.organizations(
    admin UUID REFERENCES flingapp.users(id) ON DELETE RESTRICT,
    domain TEXT NOT NULL UNIQUE
 );
+-- comments for postgraphQL docs
+COMMENT ON TABLE flingapp.organizations IS 'An organization that freelancers and users can belong to.';
+COMMENT ON COLUMN flingapp.organizations.id IS 'The universally unique ID of an organization';
+COMMENT ON COLUMN flingapp.organizations.name IS 'An organization''s name';
+COMMENT ON COLUMN flingapp.organizations.admin IS 'A UUID of a user who is the assigned admin of this organization. References users.';
+COMMENT ON COLUMN flingapp.organizations.domain IS 'A unique FQDN used to help a user find their organization. E.g. example.com'; 
 
 /* many-to-many mapping of organization to users */
 CREATE TABLE flingapp.user_org_map(
@@ -45,18 +62,31 @@ CREATE TABLE flingapp.user_org_map(
    _user UUID NOT NULL REFERENCES flingapp.users(id),
    PRIMARY KEY(organization, _user)
 );
-
+-- comments for postgraphQL docs
+COMMENT ON TABLE flingapp.user_org_map IS 'A many-to-many mapping of users to organizations';
+COMMENT ON COLUMN flingapp.user_org_map.id IS 'The universally unique ID of a user to organization map entry';
+COMMENT ON COLUMN flingapp.user_org_map.organization IS 'An organization''s name - references organization table';
+COMMENT ON COLUMN flingapp.user_org_map._user IS 'A UUID of a user. References users.';
+ 
 /* freelancer location */
 CREATE TABLE flingapp.country(
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    country TEXT NOT NULL UNIQUE
 );
+-- comments for postgraphQL docs
+COMMENT ON TABLE flingapp.country IS 'An list of all the countries in the world';
+COMMENT ON COLUMN flingapp.country.id IS 'The universally unique ID of a country';
+COMMENT ON COLUMN flingapp.country.country IS 'A name of a country in the world';
 
 /* languages that the freelancer can deploy */
 CREATE TABLE flingapp.languages(
    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
    language TEXT NOT NULL UNIQUE
 );
+-- comments for postgraphQL docs
+COMMENT ON TABLE flingapp.languages IS 'An list of all languages (within reason) that a freelancer can speak.';
+COMMENT ON COLUMN flingapp.languages.id IS 'The universally unique ID of a language';
+COMMENT ON COLUMN flingapp.languages.language IS 'A name of a language';
 
 /* core freelancer entity */
 CREATE TABLE flingapp.freelancers(
