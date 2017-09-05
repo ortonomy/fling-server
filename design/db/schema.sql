@@ -1,9 +1,24 @@
+-- set some variables for our new users
+\set flinguser 'flingapp'
+
+-- create our database account and give it privileges
+DROP ROLE IF EXISTS :flinguser;
+CREATE ROLE :flinguser WITH LOGIN PASSWORD 'FlingAppMakesItEasy';
+ALTER ROLE :flinguser CREATEDB;
+
+-- drop the app databse if it already exists
+DROP DATABASE IF EXISTS fling;
+-- create our awesome app db
+CREATE DATABASE fling WITH OWNER :flinguser;
+GRANT ALL PRIVILEGES ON DATABASE fling TO :flinguser;
+
+\connect fling
+DROP SCHEMA IF EXISTS flingapp;
+
+-- create the app schema and then create tables
 begin;
-
-\connect fling;
-
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE SCHEMA IF NOT EXISTS flingapp;
+CREATE SCHEMA IF NOT EXISTS flingapp AUTHORIZATION flingapp;
 
 /* our core app users */
 CREATE TABLE flingapp.users(
@@ -230,3 +245,4 @@ CREATE TABLE flingapp.workhistory_relationship_map(
    workedWith UUID NOT NULL REFERENCES flingapp.project_freelancer_map(freelancer),
    PRIMARY KEY (experience, workedWith)
 );
+commit;
