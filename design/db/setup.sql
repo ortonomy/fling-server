@@ -39,6 +39,7 @@ GRANT :flinguser to :flingpgql;
 
 \connect fling
 DROP SCHEMA IF EXISTS flingapp;
+DROP SCHEMA IF EXSITS flingapp_custom;
 DROP SCHEMA IF EXISTS flingapp_private;
 
 -- create the app schema and then create tables
@@ -48,6 +49,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- add schemas
 CREATE SCHEMA IF NOT EXISTS flingapp AUTHORIZATION :flingadmin;
 CREATE SCHEMA IF NOT EXISTS flingapp_private AUTHORIZATION :flingadmin;
+CREATE SCHEMA IF NOT EXISTS flingapp_custom AUTHORIZATION :flingadmin;
 --  we want the flingapp user to be the role that owns the tables so postgraphql has the correct permissions
 SET ROLE :flingadmin;
 
@@ -844,546 +846,783 @@ COMMENT ON TYPE flingapp.payment_currency IS 'A list of all the possible text no
 
 -- 1. our core app user private account information
 CREATE TABLE flingapp_private.user_account(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  email TEXT NOT NULL CHECK (email ~* '^.+@.+\..+$'),
-  email_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
-  password_hash TEXT NOT NULL,
+  user_acc_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  user_email TEXT NOT NULL CHECK (user_email ~* '^.+@.+\..+$'),
+  user_email_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  user_email_confirm_token_selector TEXT DEFAULT NULL,
+  user_email_confirm_token_verifier_hash TEXT DEFAULT NULL,
+  user_password_hash TEXT NOT NULL,
+  user_password_reset_requested BOOLEAN NOT NULL DEFAULT FALSE,
+  user_password_reset_token_selector TEXT DEFAULT NULL,
+  user_password_reset_token_verifier_hash TEXT DEFAULT NULL,
+  user_password_reset_token_expiry TIMESTAMP WITHOUT TIME ZONE DEFAULT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   -- keys
-  CONSTRAINT user_account_pkey PRIMARY KEY (id),
-  CONSTRAINT user_account_email_key UNIQUE (email)
+  CONSTRAINT user_user_acc_pkey PRIMARY KEY (user_acc_id),
+  CONSTRAINT user_account_user_email_key UNIQUE (user_email)
 );
 -- comments for user_account
 COMMENT ON TABLE flingapp_private.user_account IS 'A human user''s account information with fling app';
-COMMENT ON COLUMN flingapp_private.user_account.id IS 'The universally unique ID of a user account of flingapp';
-COMMENT ON COLUMN flingapp_private.user_account.email IS 'The unique email address of a user - a user cannot register with the same email twice.';
-COMMENT ON COLUMN flingapp_private.user_account.email_confirmed IS 'Whether or not the user has confirmed their email address.';
-COMMENT ON COLUMN flingapp_private.user_account.password_hash IS 'The salted password hash of a user account.';
+COMMENT ON COLUMN flingapp_private.user_account.user_acc_id IS 'The universally unique ID of a user account of flingapp';
+COMMENT ON COLUMN flingapp_private.user_account.user_email IS 'The unique email address of a user - a user cannot register with the same email twice.';
+COMMENT ON COLUMN flingapp_private.user_account.user_email_confirmed IS 'Whether or not the user has confirmed their email address.';
+COMMENT ON COLUMN flingapp_private.user_account.user_email_confirm_token_selector IS 'The first part (selector) of the split token for email verifications';
+COMMENT ON COLUMN flingapp_private.user_account.user_email_confirm_token_verifier_hash IS 'The salted hash of the second part (verifier) of the split token for email verifications';
+COMMENT ON COLUMN flingapp_private.user_account.user_password_hash IS 'The salted password hash of a user account.';
+COMMENT ON COLUMN flingapp_private.user_account.user_password_reset_requested IS 'Is a password reset request active or not?';
+COMMENT ON COLUMN flingapp_private.user_account.user_password_reset_token_selector IS 'The first part (selector) of the split token for password resets';
+COMMENT ON COLUMN flingapp_private.user_account.user_password_reset_token_verifier_hash IS 'The salted hash of the second part (verifier) of the split token for password resets';
+COMMENT ON COLUMN flingapp_private.user_account.user_password_reset_token_expiry IS 'The timestamp for when the password reset expires.';
 COMMENT ON COLUMN flingapp_private.user_account.created_at IS 'The timestamp when the user was created.';
 COMMENT ON COLUMN flingapp_private.user_account.updated_at IS 'The timestamp when the user was last updated';
 
--- 2. an organization that is using flingapp
-CREATE TABLE flingapp.organization(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  admin UUID NOT NULL,
-  domain TEXT NOT NULL,
-  -- keys
-  CONSTRAINT organization_pkey PRIMARY KEY (id),
-  CONSTRAINT organization_name_key UNIQUE (name),
-  CONSTRAINT organization_domain_key UNIQUE (domain),
-  CONSTRAINT organization_user_account_fkey FOREIGN KEY (admin)
-    REFERENCES flingapp_private.user_account(id) MATCH SIMPLE
-    ON DELETE RESTRICT
-    ON UPDATE CASCADE
-);
--- comments for organization
-COMMENT ON TABLE flingapp.organization IS 'An organization that freelancers and users can belong to.';
-COMMENT ON COLUMN flingapp.organization.id IS 'The universally unique ID of an organization';
-COMMENT ON COLUMN flingapp.organization.name IS 'An organization''s name';
-COMMENT ON COLUMN flingapp.organization.admin IS 'A UUID of a user who is the assigned admin of this organization. References users.';
-COMMENT ON COLUMN flingapp.organization.domain IS 'A unique FQDN used to help a user find their organization. E.g. example.com'; 
-
--- 3. our core app user profile information 
-CREATE TABLE flingapp.user(
-  id UUID NOT NULL,
-  first_name TEXT NOT NULL DEFAULT 'Jane',
-  last_name TEXT NOT NULL DEFAULT 'Doe',
-  display_name TEXT NOT NULL,
+-- 2. our core app user profile information 
+CREATE TABLE flingapp_custom.user(
+  user_id UUID NOT NULL,
+  user_first_name TEXT NOT NULL,
+  user_last_name TEXT NOT NULL,
+  user_display_name TEXT NOT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   -- keys
-  CONSTRAINT user_pkey PRIMARY KEY (id),
-  CONSTRAINT user_display_name_key UNIQUE (display_name),
-  CONSTRAINT user_id_fkey FOREIGN KEY (id)
-    REFERENCES flingapp_private.user_account(id) MATCH SIMPLE
+  CONSTRAINT user_pkey PRIMARY KEY (user_id),
+  CONSTRAINT user_display_name_key UNIQUE (user_display_name),
+  CONSTRAINT user_id_fkey FOREIGN KEY (user_id)
+    REFERENCES flingapp_private.user_account(user_acc_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comments for user
-COMMENT ON TABLE flingapp.user IS 'A human user of flingapp';
-COMMENT ON COLUMN flingapp.user.id IS 'The universally unique ID of a user of flingapp. References flingapp account.';
-COMMENT ON COLUMN flingapp.user.first_name IS 'The first, or given name, of a user of flingapp';
-COMMENT ON COLUMN flingapp.user.last_name IS 'The family name, or last name, of a user of flingapp';
-COMMENT ON COLUMN flingapp.user.display_name IS 'The username \/ display name of a user of flingapp';
-COMMENT ON COLUMN flingapp.user.created_at IS 'The timestamp when the user was created';
-COMMENT ON COLUMN flingapp.user.updated_at IS 'The timestamp when the user was last updated';
-COMMENT ON COLUMN flingapp.user.organization IS 'The ID of the organization the user belongs to';
+COMMENT ON TABLE flingapp_custom.user IS 'A human user of flingapp';
+COMMENT ON COLUMN flingapp_custom.user.user_id IS 'The universally unique ID of a user of flingapp. References flingapp account.';
+COMMENT ON COLUMN flingapp_custom.user.user_first_name IS 'The first, or given name, of a user of flingapp';
+COMMENT ON COLUMN flingapp_custom.user.user_last_name IS 'The family name, or last name, of a user of flingapp';
+COMMENT ON COLUMN flingapp_custom.user.user_display_name IS 'The username \/ display name of a user of flingapp';
+COMMENT ON COLUMN flingapp_custom.user.created_at IS 'The timestamp when the user was created';
+COMMENT ON COLUMN flingapp_custom.user.updated_at IS 'The timestamp when the user was last updated';
+
+-- 3. an organization that is using flingapp
+CREATE TABLE flingapp.organization(
+  org_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  org_name TEXT NOT NULL,
+  org_admin UUID NOT NULL,
+  org_domain TEXT NOT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
+  -- keys
+  CONSTRAINT organization_pkey PRIMARY KEY (org_id),
+  CONSTRAINT organization_org_name UNIQUE (org_name),
+  CONSTRAINT organization_org_admin_key UNIQUE (org_admin),
+  CONSTRAINT organization_org_domain_key UNIQUE (org_domain),
+  CONSTRAINT organization_org_admin_fkey FOREIGN KEY (org_admin)
+    REFERENCES flingapp_custom.user(user_id) MATCH SIMPLE
+    ON DELETE RESTRICT
+);
+-- comments for organization
+COMMENT ON TABLE flingapp.organization IS 'An organization that freelancers and users can belong to.';
+COMMENT ON COLUMN flingapp.organization.org_id IS 'The universally unique ID of an organization';
+COMMENT ON COLUMN flingapp.organization.org_name IS 'An organization''s name';
+COMMENT ON COLUMN flingapp.organization.org_name IS 'A UUID of a user who is the assigned admin of this organization. References users.';
+COMMENT ON COLUMN flingapp.organization.org_domain IS 'A unique FQDN used to help a user find their organization. E.g. example.com'; 
+COMMENT ON COLUMN flingapp.organization.created_at IS 'The timestamp when the organization was created.'; 
+COMMENT ON COLUMN flingapp.organization.updated_at IS 'The timestamp when the organization was last updated.'; 
 
 -- 4. many-to-many mapping table of organization to users
 CREATE TABLE flingapp.user_org_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  organization_id UUID NOT NULL,
-  user_id UUID NOT NULL,
+  u_o_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  u_o_map_org_id UUID NOT NULL,
+  u_o_map_user_id UUID NOT NULL,
+  u_o_map_org_access BOOLEAN NOT NULL DEFAULT FALSE,
+  u_o_map_org_access_requested BOOLEAN NOT NULL DEFAULT FALSE,
+  u_o_map_org_access_key_selector TEXT DEFAULT NULL,
+  u_o_map_org_access_key_verifier_hash TEXT DEFAULT NULL,
   -- keys
-  CONSTRAINT user_org_map_pkey PRIMARY KEY (organization_id, user_id),
-  CONSTRAINT user_org_map_organization_fkey FOREIGN KEY (organization_id)
-    REFERENCES flingapp.organization(id) MATCH SIMPLE
-    ON DELETE RESTRICT
-    ON UPDATE CASCADE,
-  CONSTRAINT users_org_map_user_fkey FOREIGN KEY (user_id)
-    REFERENCES flingapp_private.user_account(id) MATCH SIMPLE
-    ON DELETE RESTRICT
-    ON UPDATE CASCADE
+  CONSTRAINT user_org_map_pkey PRIMARY KEY (u_o_map_org_id, u_o_map_user_id),
+  CONSTRAINT user_org_map_organization_fkey FOREIGN KEY (u_o_map_org_id)
+    REFERENCES flingapp.organization(org_id) MATCH SIMPLE
+    ON DELETE RESTRICT,
+  CONSTRAINT users_org_map_user_fkey FOREIGN KEY (u_o_map_user_id)
+    REFERENCES flingapp_custom.user(user_id) MATCH SIMPLE
+    ON DELETE CASCADE
 );
 -- comments for user account to organization many-to-many
 COMMENT ON TABLE flingapp.user_org_map IS 'A many-to-many mapping of users to organizations';
-COMMENT ON COLUMN flingapp.user_org_map.id IS 'The universally unique ID of a user to organization map entry';
-COMMENT ON COLUMN flingapp.user_org_map.organization_id IS 'An organization''s name - references organization table';
-COMMENT ON COLUMN flingapp.user_org_map.user_id IS 'A UUID of a user. References users.';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_id IS 'The universally unique ID of a user to organization map entry';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_id IS 'An organization''s name - references organization table';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_user_id IS 'A UUID of a user. References users.';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access IS 'Does the user have access to this org yet?';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_requested IS 'Whether the user has requested access to this org';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_key_selector IS 'The first part (selector) of the split token for requesting access to an organization';
+COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_key_verifier_hash IS 'The salted hash of the second part (verifier) of the split token for requesting access to an organization';
 
 -- 5. core freelancer entity
 CREATE TABLE flingapp.freelancer(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  first_name TEXT NOT NULL DEFAULT 'John',
-  last_name TEXT NOT NULL DEFAULT 'Doe',
-  is_native_speaker BOOLEAN NOT NULL DEFAULT true,
+  fl_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_first_name TEXT NOT NULL DEFAULT 'John',
+  fl_last_name TEXT NOT NULL DEFAULT 'Doe',
+  fl_is_native_speaker BOOLEAN NOT NULL DEFAULT true,
   fl_assessment_submitted BOOLEAN NOT NULL DEFAULT false,
   fl_assessment_passed BOOLEAN NOT NULL DEFAULT false,
-  location flingapp.country NOT NULL,
-  timezone flingapp.timezone NOT NULL DEFAULT 'UTC +00:00 (+00:00)',
-  primary_language flingapp.language NOT NULL,
-  employment_status flingapp.employment_status NOT NULL,
+  fl_location flingapp.country NOT NULL,
+  fl_timezone flingapp.timezone NOT NULL DEFAULT 'UTC +00:00 (+00:00)',
+  fl_primary_language flingapp.language NOT NULL,
+  fl_employment_status flingapp.employment_status NOT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
-   CONSTRAINT freelancer_pkey PRIMARY KEY (id)
+  CONSTRAINT freelancer_fl_id_pkey PRIMARY KEY (fl_id)
 );
 -- comments for postgraphQL docs
 COMMENT ON TABLE flingapp.freelancer IS 'A freelancer added to fling; Can be attached to a project and workhistory.';
-COMMENT ON COLUMN flingapp.freelancer.id IS 'The universally unique ID of a freelancer in the flingapp db';
-COMMENT ON COLUMN flingapp.freelancer.first_name IS 'A freelancer''s first, or given name';
-COMMENT ON COLUMN flingapp.freelancer.last_name IS 'A freelancer''s last, or family name';
-COMMENT ON COLUMN flingapp.freelancer.is_native_speaker IS 'Whether or not the freelancer is a native speaker of organization''s primary language.';
+COMMENT ON COLUMN flingapp.freelancer.fl_id IS 'The universally unique ID of a freelancer in the flingapp db';
+COMMENT ON COLUMN flingapp.freelancer.fl_first_name IS 'A freelancer''s first, or given name';
+COMMENT ON COLUMN flingapp.freelancer.fl_last_name IS 'A freelancer''s last, or family name';
+COMMENT ON COLUMN flingapp.freelancer.fl_is_native_speaker IS 'Whether or not the freelancer is a native speaker of organization''s primary language.';
 COMMENT ON COLUMN flingapp.freelancer.fl_assessment_submitted IS 'Whether the freelancer has successfully submitted a freelancer assessment.';
 COMMENT ON COLUMN flingapp.freelancer.fl_assessment_passed IS 'Whether the freelancer successfully passed a freelancer assessment.';
-COMMENT ON COLUMN flingapp.freelancer.location IS 'Where the freelancer is located. Is a country enum type.'; 
-COMMENT ON COLUMN flingapp.freelancer.timezone IS 'Which timezone the freelancer is in. Is a tz database (https://www.iana.org/time-zones) timezone enum type.'; 
-COMMENT ON COLUMN flingapp.freelancer.primary_language IS 'Which languages a freelancer primarily communicates in. Is a language enum type';  
+COMMENT ON COLUMN flingapp.freelancer.fl_location IS 'Where the freelancer is located. Is a country enum type.'; 
+COMMENT ON COLUMN flingapp.freelancer.fl_timezone IS 'Which timezone the freelancer is in. Is a tz database (https://www.iana.org/time-zones) timezone enum type.'; 
+COMMENT ON COLUMN flingapp.freelancer.fl_primary_language IS 'Which languages a freelancer primarily communicates in. Is a language enum type.';  
+COMMENT ON COLUMN flingapp.freelancer.fl_employment_status IS 'How is the freelancer currently employed. Is an employment status enum type.';  
 COMMENT ON COLUMN flingapp.freelancer.created_at IS 'The time at which the freelancer record was created';  
 COMMENT ON COLUMN flingapp.freelancer.updated_at IS 'The time at which the freelancer record was last updated';  
 
--- unique roles for any freelancers within your organization
+-- 6. unique roles for any freelancers within your organization
 CREATE TABLE flingapp.freelancer_role(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  role TEXT NOT NULL UNIQUE,
-  CONSTRAINT freelancer_role_pkey PRIMARY KEY (id),
-  CONSTRAINT freelancer_role_role_key UNIQUE (role)
+  fl_role_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_role TEXT NOT NULL UNIQUE,
+  CONSTRAINT freelancer_role_pkey PRIMARY KEY (fl_role_id),
+  CONSTRAINT freelancer_role_role_key UNIQUE (fl_role)
 );
 -- comments for the freelancer roles
 COMMENT ON TABLE flingapp.freelancer_role IS 'A role that a freelancer can be assigned';
-COMMENT ON COLUMN flingapp.freelancer_role.id IS 'The universally unique ID of a role';
-COMMENT ON COLUMN flingapp.freelancer_role.role IS 'The text description of a role';
+COMMENT ON COLUMN flingapp.freelancer_role.fl_role_id IS 'The universally unique ID of a role';
+COMMENT ON COLUMN flingapp.freelancer_role.fl_role IS 'The text description of a role';
 
--- many-to-many mapping between freelancers and roles within your org
+-- 7. many-to-many mapping between freelancers and roles within your org
 CREATE TABLE flingapp.freelancer_role_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  role UUID NOT NULL,
-  freelancer UUID NOT NULL,
-  CONSTRAINT freelancer_role_map_pkey PRIMARY KEY (role, freelancer),
-  CONSTRAINT freelancer_role_map_role_fkey FOREIGN KEY (role) 
-    REFERENCES flingapp.freelancer_role (id) MATCH SIMPLE
+  fl_role_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_role_map_role UUID NOT NULL,
+  fl_role_map_freelancer UUID NOT NULL,
+  CONSTRAINT freelancer_role_map_key UNIQUE (fl_role_map_id),
+  CONSTRAINT freelancer_role_map_pkey PRIMARY KEY (fl_role_map_role, fl_role_map_freelancer),
+  CONSTRAINT freelancer_role_map_role_fkey FOREIGN KEY (fl_role_map_role) 
+    REFERENCES flingapp.freelancer_role (fl_role_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT freelancer_role_map_freelancer_fkey FOREIGN KEY (freelancer) 
-    REFERENCES flingapp.freelancer (id) MATCH SIMPLE
+  CONSTRAINT freelancer_role_map_freelancer_fkey FOREIGN KEY (fl_role_map_freelancer) 
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comments for the mapping of freelancers to roles
 COMMENT ON TABLE flingapp.freelancer_role_map IS 'A role that a freelancer can be assigned';
-COMMENT ON COLUMN flingapp.freelancer_role_map.id IS 'The universally unique ID of a entry in the freelancer to role mapping';
-COMMENT ON COLUMN flingapp.freelancer_role_map.role IS 'The universally unique ID of a role in the freelancer to role mapping';
-COMMENT ON COLUMN flingapp.freelancer_role_map.freelancer IS 'The universally unique ID of a freelancer in the freelancer to role mapping';
+COMMENT ON COLUMN flingapp.freelancer_role_map.fl_role_map_id IS 'The universally unique ID of a entry in the freelancer to role mapping';
+COMMENT ON COLUMN flingapp.freelancer_role_map.fl_role_map_role IS 'The universally unique ID of a role in the freelancer to role mapping';
+COMMENT ON COLUMN flingapp.freelancer_role_map.fl_role_map_freelancer IS 'The universally unique ID of a freelancer in the freelancer to role mapping';
 
--- many-to-many mapping between languages and freelancers. Different to primary language -- this is the other languages freelancers can speak
+-- 8. many-to-many mapping between languages and freelancers. Different to primary language -- this is the other languages freelancers can speak
 CREATE TABLE flingapp.freelancer_language_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  language flingapp.language NOT NULL,
-  freelancer UUID NOT NULL, 
-  CONSTRAINT freelancer_language_map_pkey PRIMARY KEY (language, freelancer),
-  CONSTRAINT freelancer_language_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer (id) MATCH SIMPLE 
+  fl_lang_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_lang_map_language flingapp.language NOT NULL,
+  fl_lang_map_freelancer UUID NOT NULL, 
+  CONSTRAINT freelancer_language_map_key UNIQUE (fl_lang_map_id),
+  CONSTRAINT freelancer_language_map_pkey PRIMARY KEY (fl_lang_map_language, fl_lang_map_freelancer),
+  CONSTRAINT freelancer_language_map_freelancer_fkey FOREIGN KEY (fl_lang_map_freelancer)
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE 
     ON DELETE RESTRICT
 );
 -- comments for the mapping of freelancers to languages
 COMMENT ON TABLE flingapp.freelancer_language_map IS 'A mapping of all languages a freelancer can speak';
-COMMENT ON COLUMN flingapp.freelancer_language_map.id IS 'The universally unique ID of a entry in the freelancer to language mapping';
-COMMENT ON COLUMN flingapp.freelancer_language_map.language IS 'A language enum type that the freelancer can speak';
-COMMENT ON COLUMN flingapp.freelancer_language_map.freelancer IS 'The universally unique ID of a freelancer in the freelancer to language mapping';
+COMMENT ON COLUMN flingapp.freelancer_language_map.fl_lang_map_id IS 'The universally unique ID of a entry in the freelancer to language mapping';
+COMMENT ON COLUMN flingapp.freelancer_language_map.fl_lang_map_language IS 'A language enum type that the freelancer can speak';
+COMMENT ON COLUMN flingapp.freelancer_language_map.fl_lang_map_freelancer IS 'The universally unique ID of a freelancer in the freelancer to language mapping';
 
--- many-to-many mapping of freelancer and employment status */
+-- 9. many-to-many mapping of freelancer and employment status */
 CREATE TABLE flingapp.freelancer_employment_status_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  status flingapp.employment_status NOT NULL,
-  freelancer UUID NOT NULL,
-  CONSTRAINT freelancer_employment_status_map_pkey PRIMARY KEY (status, freelancer),
-  CONSTRAINT freelancer_employment_status_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer (id)
+  fl_emp_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_emp_map_status flingapp.employment_status NOT NULL,
+  fl_emp_map_freelancer UUID NOT NULL,
+  CONSTRAINT freelancer_employment_status_map_key UNIQUE (fl_emp_map_id),
+  CONSTRAINT freelancer_employment_status_map_pkey PRIMARY KEY (fl_emp_map_status, fl_emp_map_freelancer),
+  CONSTRAINT freelancer_employment_status_map_freelancer_fkey FOREIGN KEY (fl_emp_map_freelancer)
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
 );
 -- comments for the mapping of freelancers to employment status
 COMMENT ON TABLE flingapp.freelancer_employment_status_map IS 'A mapping of all employment statuses of a freelancer.';
-COMMENT ON COLUMN flingapp.freelancer_employment_status_map.id IS 'The universally unique ID of a entry in the freelancer to employment status mapping';
-COMMENT ON COLUMN flingapp.freelancer_employment_status_map.status IS 'A employment status enum type that the freelancer can speak';
-COMMENT ON COLUMN flingapp.freelancer_employment_status_map.freelancer IS 'The universally unique ID of a freelancer in the freelancer to employment status mapping';
+COMMENT ON COLUMN flingapp.freelancer_employment_status_map.fl_emp_map_id IS 'The universally unique ID of a entry in the freelancer to employment status mapping';
+COMMENT ON COLUMN flingapp.freelancer_employment_status_map.fl_emp_map_status IS 'A employment status enum type that the freelancer can speak';
+COMMENT ON COLUMN flingapp.freelancer_employment_status_map.fl_emp_map_freelancer IS 'The universally unique ID of a freelancer in the freelancer to employment status mapping';
 
--- many-to-many mapping of freelancer and external links
+-- 10. many-to-many mapping of freelancer and external links
 CREATE TABLE flingapp.freelancer_external_links_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  link TEXT NOT NULL,
-  freelancer UUID NOT NULL,
-  CONSTRAINT freelancer_external_links_map_pkey PRIMARY KEY (link, freelancer),
-  CONSTRAINT freelancer_external_links_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer(id) MATCH SIMPLE
+  fl_exlnk_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_exlnk_map_link TEXT NOT NULL,
+  fl_exlnk_map_freelancer UUID NOT NULL,
+  CONSTRAINT freelancer_external_links_map_key UNIQUE (fl_exlnk_map_id),
+  CONSTRAINT freelancer_external_links_map_pkey PRIMARY KEY (fl_exlnk_map_link, fl_exlnk_map_freelancer),
+  CONSTRAINT freelancer_external_links_map_freelancer_fkey FOREIGN KEY (fl_exlnk_map_freelancer)
+    REFERENCES flingapp.freelancer(fl_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comments for the mapping of freelancers to external links
 COMMENT ON TABLE flingapp.freelancer_external_links_map IS 'A mapping of all external links of a freelancer.';
-COMMENT ON COLUMN flingapp.freelancer_external_links_map.id IS 'The universally unique ID of a entry in the freelancer to external link mapping status mapping';
-COMMENT ON COLUMN flingapp.freelancer_external_links_map.link IS 'URL of external link for freelancer';
-COMMENT ON COLUMN flingapp.freelancer_external_links_map.freelancer IS 'The universally unique ID of a freelancer in the freelancer to external links mapping';
+COMMENT ON COLUMN flingapp.freelancer_external_links_map.fl_exlnk_map_id IS 'The universally unique ID of a entry in the freelancer to external link mapping status mapping';
+COMMENT ON COLUMN flingapp.freelancer_external_links_map.fl_exlnk_map_link IS 'URL of external link for freelancer';
+COMMENT ON COLUMN flingapp.freelancer_external_links_map.fl_exlnk_map_freelancer IS 'The universally unique ID of a freelancer in the freelancer to external links mapping';
 
-
--- core file store
+-- 11. core file store
 CREATE TABLE flingapp_private.file_store(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  file_data BYTEA NOT NULL,
-  file_name TEXT NOT NULL,
+  fs_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fs_file_data BYTEA NOT NULL,
+  fs_file_name TEXT NOT NULL,
+  fs_owner UUID,
+  fs_organization UUID,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
-  owner UUID NOT NULL,
-  organization UUID NOT NULL,
-  CONSTRAINT file_store_pkey PRIMARY KEY (id),
-  CONSTRAINT file_store_owner_fkey FOREIGN KEY (owner)
-    REFERENCES flingapp_private.user_account(id)
-    ON DELETE RESTRICT
-    ON UPDATE CASCADE,
-  CONSTRAINT file_store_organization_fkey FOREIGN KEY (organization)
-    REFERENCES flingapp.organization(id)
-    ON DELETE CASCADE
+  CONSTRAINT file_store_pkey PRIMARY KEY (fs_id),
+  CONSTRAINT file_store_owner_fkey FOREIGN KEY (fs_owner)
+    REFERENCES flingapp_custom.user(user_id)
+    ON DELETE SET NULL,
+  CONSTRAINT file_store_organization_fkey FOREIGN KEY (fs_organization)
+    REFERENCES flingapp.organization(org_id)
+    ON DELETE SET NULL
 );
 -- comments for file store
 COMMENT ON TABLE flingapp_private.file_store IS 'The central file store of flingapp.';
-COMMENT ON COLUMN flingapp_private.file_store.id IS 'The universally unique ID of each file in the file store';
-COMMENT ON COLUMN flingapp_private.file_store.file_data IS 'The binary data of the files stored in the flingapp db';
-COMMENT ON COLUMN flingapp_private.file_store.file_name IS 'The file name of the a file stored in the flingapp db';
+COMMENT ON COLUMN flingapp_private.file_store.fs_id IS 'The universally unique ID of each file in the file store';
+COMMENT ON COLUMN flingapp_private.file_store.fs_file_data IS 'The binary data of the files stored in the flingapp db';
+COMMENT ON COLUMN flingapp_private.file_store.fs_file_name IS 'The file name of the a file stored in the flingapp db';
+COMMENT ON COLUMN flingapp_private.file_store.fs_owner IS 'The universally unique ID of a flingapp user who owns the file.';
+COMMENT ON COLUMN flingapp_private.file_store.fs_organization IS 'The universally unique ID of a flingapp user who owns the file.';
 COMMENT ON COLUMN flingapp_private.file_store.created_at IS 'The timestamp of when the file was created.';
 COMMENT ON COLUMN flingapp_private.file_store.updated_at IS 'The timestamp of when the file was last updated.';
-COMMENT ON COLUMN flingapp_private.file_store.owner IS 'The universally unique ID of a flingapp user who owns the file.';
 
-
--- many-to-many mapping of files to freelancers
+-- 12. many-to-many mapping of files to freelancers
 CREATE TABLE flingapp.freelancer_file_store_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  file UUID NOT NULL,
-  freelancer UUID NOT NULL,
-  doc_type TEXT NOT NULL,
-  CONSTRAINT freelancer_file_store_map_pkey PRIMARY KEY (file, freelancer),
-  CONSTRAINT freelancer_file_store_map_file_fkey FOREIGN KEY (file)
-    REFERENCES flingapp_private.file_store (id) MATCH SIMPLE
+  fl_fs_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_fs_map_file UUID NOT NULL,
+  fl_fs_map_freelancer UUID NOT NULL,
+  fl_fs_map_doc_type TEXT NOT NULL,
+  CONSTRAINT freelancer_file_store_map_key UNIQUE (fl_fs_map_id),
+  CONSTRAINT freelancer_file_store_map_pkey PRIMARY KEY (fl_fs_map_file, fl_fs_map_freelancer),
+  CONSTRAINT freelancer_file_store_map_file_fkey FOREIGN KEY (fl_fs_map_file)
+    REFERENCES flingapp_private.file_store (fs_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT freelancer_file_store_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer(id) MATCH SIMPLE
+  CONSTRAINT freelancer_file_store_map_freelancer_fkey FOREIGN KEY (fl_fs_map_freelancer)
+    REFERENCES flingapp.freelancer(fl_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comments for file store mapping to freelancers
 COMMENT ON TABLE flingapp.freelancer_file_store_map IS 'The mapping of files in the file store to a freelancer.';
-COMMENT ON COLUMN flingapp.freelancer_file_store_map.id IS 'The universally unique ID of each file to freelancer map';
-COMMENT ON COLUMN flingapp.freelancer_file_store_map.file IS 'The universally unique ID of a file in the in the file to freelancer map';
-COMMENT ON COLUMN flingapp.freelancer_file_store_map.freelancer IS 'The universally unique ID of a freelancer in the file to freelancer map';
-COMMENT ON COLUMN flingapp.freelancer_file_store_map.doc_type IS 'A label for the type of file stored. E.g. ''Text''';
+COMMENT ON COLUMN flingapp.freelancer_file_store_map.fl_fs_map_id IS 'The universally unique ID of each file to freelancer map';
+COMMENT ON COLUMN flingapp.freelancer_file_store_map.fl_fs_map_file IS 'The universally unique ID of a file in the in the file to freelancer map';
+COMMENT ON COLUMN flingapp.freelancer_file_store_map.fl_fs_map_freelancer IS 'The universally unique ID of a freelancer in the file to freelancer map';
+COMMENT ON COLUMN flingapp.freelancer_file_store_map.fl_fs_map_doc_type IS 'A label for the type of file stored. E.g. ''Text''';
 
 
--- core project store
+-- 13. core project store
 CREATE TABLE flingapp.project(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
-  description TEXT,
-  organization UUID NOT NULL,
-  CONSTRAINT project_pkey PRIMARY KEY (id),
-  CONSTRAINT project_organization_fkey FOREIGN KEY (organization)
-    REFERENCES flingapp.organization (id)
+  proj_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  proj_name TEXT NOT NULL,
+  proj_start_date DATE NOT NULL,
+  proj_end_date DATE NOT NULL,
+  proj_description TEXT,
+  proj_organization UUID NOT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT project_pkey PRIMARY KEY (proj_id),
+  CONSTRAINT project_organization_fkey FOREIGN KEY (proj_organization)
+    REFERENCES flingapp.organization (org_id)
     ON DELETE RESTRICT
 );
 -- comments for project store
 COMMENT ON TABLE flingapp.project IS 'A store for all projects registered for an organization.';
-COMMENT ON COLUMN flingapp.project.id IS 'The universally unique ID of each project in the store.';
-COMMENT ON COLUMN flingapp.project.name IS 'The name of an organization''s project.';
-COMMENT ON COLUMN flingapp.project.start_date IS 'The start date of an organization''s project';
-COMMENT ON COLUMN flingapp.project.end_date IS 'The end date of an organization''s project';
-COMMENT ON COLUMN flingapp.project.description IS 'A text description of an organization''s project.';
-COMMENT ON COLUMN flingapp.project.organization IS 'The universally unique ID of an organization that run/ran this project.';
+COMMENT ON COLUMN flingapp.project.proj_id IS 'The universally unique ID of each project in the store.';
+COMMENT ON COLUMN flingapp.project.proj_name IS 'The name of an organization''s project.';
+COMMENT ON COLUMN flingapp.project.proj_start_date IS 'The start date of an organization''s project';
+COMMENT ON COLUMN flingapp.project.proj_end_date IS 'The end date of an organization''s project';
+COMMENT ON COLUMN flingapp.project.proj_description IS 'A text description of an organization''s project.';
+COMMENT ON COLUMN flingapp.project.proj_organization IS 'The universally unique ID of an organization that run/ran this project.';
+COMMENT ON COLUMN flingapp.project.created_at IS 'The timestamp of when the project was created.';
+COMMENT ON COLUMN flingapp.project.updated_at IS 'The timestamp of when the project was last updated.';
 
 
--- many-to-many mapping of project to freelancer 
+-- 14. many-to-many mapping of project to freelancer 
 CREATE TABLE flingapp.project_freelancer_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  freelancer UUID NOT NULL,
-  project UUID NOT NULL,
-  CONSTRAINT project_freelancer_map_pkey PRIMARY KEY (freelancer, project),
-  CONSTRAINT project_freelancer_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer (id) MATCH SIMPLE
+  proj_fl_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  proj_fl_map_freelancer UUID NOT NULL,
+  proj_fl_map_project UUID NOT NULL,
+  CONSTRAINT project_freelancer_map_key UNIQUE (proj_fl_map_id),
+  CONSTRAINT project_freelancer_map_pkey PRIMARY KEY (proj_fl_map_freelancer, proj_fl_map_project),
+  CONSTRAINT project_freelancer_map_freelancer_fkey FOREIGN KEY (proj_fl_map_freelancer)
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT project_freelancer_map_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.project (id) MATCH SIMPLE
+  CONSTRAINT project_freelancer_map_project_fkey FOREIGN KEY (proj_fl_map_project)
+    REFERENCES flingapp.project (proj_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comments for project to freelancer map
 COMMENT ON TABLE flingapp.project_freelancer_map IS 'A mapping of freelancers to projects.';
-COMMENT ON COLUMN flingapp.project_freelancer_map.id IS 'The universally unique ID of a project to freelancer map.';
-COMMENT ON COLUMN flingapp.project_freelancer_map.freelancer IS 'The universally unique ID of a freelancer mapped to a project.';
-COMMENT ON COLUMN flingapp.project_freelancer_map.project IS 'The universally unique ID of a project mapped to a freelancer.';
+COMMENT ON COLUMN flingapp.project_freelancer_map.proj_fl_map_id IS 'The universally unique ID of a project to freelancer map.';
+COMMENT ON COLUMN flingapp.project_freelancer_map.proj_fl_map_freelancer IS 'The universally unique ID of a freelancer mapped to a project.';
+COMMENT ON COLUMN flingapp.project_freelancer_map.proj_fl_map_project IS 'The universally unique ID of a project mapped to a freelancer.';
 
--- many-to-many mapping of file to project
+-- 15. many-to-many mapping of file to project
 CREATE TABLE flingapp.project_file_store_map(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  file UUID NOT NULL,
-  project UUID NOT NULL,
-  doc_type TEXT NOT NULL,
-  CONSTRAINT project_file_store_map_pkey PRIMARY KEY (file, project),
-  CONSTRAINT project_file_store_map_file_fkey FOREIGN KEY (file)
-    REFERENCES flingapp_private.file_store (id)
+  proj_fs_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  proj_fs_map_file UUID NOT NULL,
+  proj_fs_map_project UUID NOT NULL,
+  proj_fs_map_doc_type TEXT NOT NULL,
+  CONSTRAINT project_file_store_map_key UNIQUE (proj_fs_map_id),
+  CONSTRAINT project_file_store_map_pkey PRIMARY KEY (proj_fs_map_file, proj_fs_map_project),
+  CONSTRAINT project_file_store_map_file_fkey FOREIGN KEY (proj_fs_map_file)
+    REFERENCES flingapp_private.file_store (fs_id)
     ON DELETE RESTRICT,
-  CONSTRAINT project_file_store_map_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.project (id)
+  CONSTRAINT project_file_store_map_project_fkey FOREIGN KEY (proj_fs_map_project)
+    REFERENCES flingapp.project (proj_id)
     ON DELETE RESTRICT
 );
 -- comments for file store mapping to project
 COMMENT ON TABLE flingapp.project_file_store_map IS 'The mapping of files in the file store to a project.';
-COMMENT ON COLUMN flingapp.project_file_store_map.id IS 'The universally unique ID of a file to project map';
-COMMENT ON COLUMN flingapp.project_file_store_map.file IS 'The universally unique ID of a file mapped to a project';
-COMMENT ON COLUMN flingapp.project_file_store_map.project IS 'The universally unique ID of a project mapped to a file.';
-COMMENT ON COLUMN flingapp.project_file_store_map.doc_type IS 'A label for the type of file stored. E.g. ''Text''';
+COMMENT ON COLUMN flingapp.project_file_store_map.proj_fs_map_id IS 'The universally unique ID of a file to project map';
+COMMENT ON COLUMN flingapp.project_file_store_map.proj_fs_map_file IS 'The universally unique ID of a file mapped to a project';
+COMMENT ON COLUMN flingapp.project_file_store_map.proj_fs_map_project IS 'The universally unique ID of a project mapped to a file.';
+COMMENT ON COLUMN flingapp.project_file_store_map.proj_fs_map_doc_type IS 'A label for the type of file stored. E.g. ''Text''';
 
 
--- many-to-many mapping of role to project
+-- 16. many-to-many mapping of role to project
 CREATE TABLE flingapp.project_role_map(
-  id UUID DEFAULT gen_random_uuid(),
-  role UUID UNIQUE NOT NULL,
-  project UUID UNIQUE NOT NULL,
-  CONSTRAINT project_role_map_pkey PRIMARY KEY (role, project),
-  CONSTRAINT project_role_map_role_fkey FOREIGN KEY (role)
-    REFERENCES flingapp.freelancer_role (id)
+  pjoj_role_map_id UUID DEFAULT gen_random_uuid(),
+  pjoj_role_map_role UUID UNIQUE NOT NULL,
+  pjoj_role_map_project UUID UNIQUE NOT NULL,
+  CONSTRAINT project_role_map_pkey PRIMARY KEY (pjoj_role_map_role, pjoj_role_map_project),
+  CONSTRAINT project_role_map_role_fkey FOREIGN KEY (pjoj_role_map_role)
+    REFERENCES flingapp.freelancer_role (fl_role_id)
     ON DELETE RESTRICT,
-  CONSTRAINT project_role_map_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.project (id)
+  CONSTRAINT project_role_map_project_fkey FOREIGN KEY (pjoj_role_map_project)
+    REFERENCES flingapp.project (proj_id)
     ON DELETE RESTRICT
 );
 -- comments for role mapping to project
 COMMENT ON TABLE flingapp.project_role_map IS 'The mapping of roles to a project.';
-COMMENT ON COLUMN flingapp.project_role_map.id IS 'The universally unique ID of a role to project map';
-COMMENT ON COLUMN flingapp.project_role_map.role IS 'The universally unique ID of a role to a project';
-COMMENT ON COLUMN flingapp.project_role_map.project IS 'The universally unique ID of a project mapped to a role.';
+COMMENT ON COLUMN flingapp.project_role_map.pjoj_role_map_id IS 'The universally unique ID of a role to project map';
+COMMENT ON COLUMN flingapp.project_role_map.pjoj_role_map_role IS 'The universally unique ID of a role to a project';
+COMMENT ON COLUMN flingapp.project_role_map.pjoj_role_map_project IS 'The universally unique ID of a project mapped to a role.';
 
 
--- core work item types for project
+-- 17. core work item types for project
 CREATE TABLE flingapp.work_item(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  CONSTRAINT work_item_pkey PRIMARY KEY (id)
+  witem_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  witem_name TEXT NOT NULL UNIQUE,
+  witem_description TEXT,
+  CONSTRAINT work_item_pkey PRIMARY KEY (witem_id)
 );
 -- comments for work item types
 COMMENT ON TABLE flingapp.work_item IS 'The store of work items in flingapp db.';
-COMMENT ON COLUMN flingapp.work_item.id IS 'The universally unique ID of a work item type';
-COMMENT ON COLUMN flingapp.work_item.name IS 'The name of the work item';
-COMMENT ON COLUMN flingapp.work_item.description IS 'The description of the work item';
+COMMENT ON COLUMN flingapp.work_item.witem_id IS 'The universally unique ID of a work item type';
+COMMENT ON COLUMN flingapp.work_item.witem_name IS 'The name of the work item';
+COMMENT ON COLUMN flingapp.work_item.witem_description IS 'The description of the work item';
 
 
--- many-to-many mapping of work items to projects
+-- 18. many-to-many mapping of work items to projects
 CREATE TABLE flingapp.project_work_item_map(
-  id UUID DEFAULT gen_random_uuid(),
-  work_item UUID NOT NULL,
-  project UUID NOT NULL,
-  CONSTRAINT project_work_item_map_pkey PRIMARY KEY (work_item, project),
-  CONSTRAINT project_work_item_map_work_item_fkey FOREIGN KEY (work_item)
-    REFERENCES flingapp.work_item (id)
+  proj_witem_map_id UUID DEFAULT gen_random_uuid(),
+  proj_witem_map_work_item UUID NOT NULL,
+  proj_witem_map_project UUID NOT NULL,
+  CONSTRAINT project_work_item_ma_key UNIQUE (proj_witem_map_id),
+  CONSTRAINT project_work_item_map_pkey PRIMARY KEY (proj_witem_map_work_item, proj_witem_map_project),
+  CONSTRAINT project_work_item_map_work_item_fkey FOREIGN KEY (proj_witem_map_work_item)
+    REFERENCES flingapp.work_item (witem_id)
     ON DELETE RESTRICT,
-  CONSTRAINT project_work_item_map_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.project (id)
+  CONSTRAINT project_work_item_map_project_fkey FOREIGN KEY (proj_witem_map_project)
+    REFERENCES flingapp.project (proj_id)
     ON DELETE RESTRICT
 );
 -- comments for work item mapping to project
-COMMENT ON TABLE flingapp.project_role_map IS 'The mapping of work items to a project.';
-COMMENT ON COLUMN flingapp.project_role_map.id IS 'The universally unique ID of a work item to project map';
-COMMENT ON COLUMN flingapp.project_role_map.role IS 'The universally unique ID of a work item mapped to a project';
-COMMENT ON COLUMN flingapp.project_role_map.project IS 'The universally unique ID of a project mapped to a work item.';
+COMMENT ON TABLE flingapp.project_work_item_map IS 'The mapping of work items to a project.';
+COMMENT ON COLUMN flingapp.project_work_item_map.proj_witem_map_id IS 'The universally unique ID of a work item to project map';
+COMMENT ON COLUMN flingapp.project_work_item_map.proj_witem_map_work_item IS 'The universally unique ID of a work item mapped to a project';
+COMMENT ON COLUMN flingapp.project_work_item_map.proj_witem_map_project IS 'The universally unique ID of a project mapped to a work item.';
 
 
--- many-to-many mapping of freelancers to projects 
+-- 19. many-to-many mapping of freelancers to projects 
 CREATE TABLE flingapp.work_history(
-  id UUID NOT NULL DEFAULT gen_random_uuid(),
-  freelancer UUID NOT NULL,
-  project UUID NOT NULL,
-  role UUID NOT NULL,
-  payment_currency flingapp.payment_currency NOT NULL default 'USD',
-  payment_rate NUMERIC NOT NULL DEFAULT 0.00,
-  main_work_item UUID NOT NULL,
-  start_date DATE NOT NULL,
-  finish_date DATE NOT NULL,
-  performance SMALLINT NOT NULL,
-  did_complete BOOLEAN NOT NULL DEFAULT false,
-  reason_for_dropout TEXT,
+  wh_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  wh_freelancer UUID NOT NULL,
+  wh_project UUID NOT NULL,
+  wh_role UUID NOT NULL,
+  wh_payment_currency flingapp.payment_currency NOT NULL default 'USD',
+  wh_payment_rate NUMERIC NOT NULL DEFAULT 0.00,
+  wh_main_work_item UUID NOT NULL,
+  wh_start_date DATE NOT NULL,
+  wh_finish_date DATE NOT NULL,
+  wh_performance SMALLINT NOT NULL,
+  wh_did_complete BOOLEAN NOT NULL DEFAULT false,
+  wh_reason_for_dropout TEXT,
   -- keys
-  CONSTRAINT work_history_pkey PRIMARY KEY (id),
-  CONSTRAINT work_history_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer (id)
+  CONSTRAINT work_history_wh_id_key UNIQUE (wh_id),
+  CONSTRAINT work_history_pkey PRIMARY KEY (wh_freelancer, wh_project),
+  CONSTRAINT work_history_freelancer_fkey FOREIGN KEY (wh_freelancer)
+    REFERENCES flingapp.freelancer (fl_id)
     ON DELETE RESTRICT,
-  CONSTRAINT work_history_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.project (id)
+  CONSTRAINT work_history_project_fkey FOREIGN KEY (wh_project)
+    REFERENCES flingapp.project (proj_id)
     ON DELETE RESTRICT,
-  CONSTRAINT work_history_role_fkey FOREIGN KEY (role)
-    REFERENCES flingapp.freelancer_role(id)
+  CONSTRAINT work_history_role_fkey FOREIGN KEY (wh_role)
+    REFERENCES flingapp.freelancer_role(fl_role_id)
     ON DELETE RESTRICT, 
-  CONSTRAINT work_history_main_work_item_fkey FOREIGN KEY (main_work_item)
-    REFERENCES flingapp.work_item (id)
+  CONSTRAINT work_history_main_work_item_fkey FOREIGN KEY (wh_main_work_item)
+    REFERENCES flingapp.work_item (witem_id)
     ON DELETE RESTRICT
 );
 -- comments for work history store
 COMMENT ON TABLE flingapp.work_history IS 'The store of all freelancers work experience with an organization.';
-COMMENT ON COLUMN flingapp.work_history.id IS 'The universally unique ID of piece of work experience in work history store.';
-COMMENT ON COLUMN flingapp.work_history.freelancer IS 'The universally unique ID of freelancer who owns the experience';
-COMMENT ON COLUMN flingapp.work_history.project IS 'The universally unique ID of a project that generated the work experience.';
-COMMENT ON COLUMN flingapp.work_history.role IS 'The universally unique ID of a role that the freelancer took on the work experience.';
-COMMENT ON COLUMN flingapp.work_history.payment_currency IS 'The payment currency for a piece of work experience';
-COMMENT ON COLUMN flingapp.work_history.payment_rate IS 'The payment rate for a piece of work experience';
-COMMENT ON COLUMN flingapp.work_history.main_work_item IS 'The main work item for a piece of work experience';
-COMMENT ON COLUMN flingapp.work_history.start_date IS 'The start date of a freelancer''s work experience';
-COMMENT ON COLUMN flingapp.work_history.finish_date IS 'The start date of a freelancer''s work experience';
-COMMENT ON COLUMN flingapp.work_history.performance IS 'A whole number integer rating of the freelancer''s performance';
-COMMENT ON COLUMN flingapp.work_history.did_complete IS 'Whether the freelancer completed the project';
-COMMENT ON COLUMN flingapp.work_history.reason_for_dropout IS 'A reason why the freelancer didn''t complete a project';
+COMMENT ON COLUMN flingapp.work_history.wh_id IS 'The universally unique ID of piece of work experience in work history store.';
+COMMENT ON COLUMN flingapp.work_history.wh_freelancer IS 'The universally unique ID of freelancer who owns the experience';
+COMMENT ON COLUMN flingapp.work_history.wh_project IS 'The universally unique ID of a project that generated the work experience.';
+COMMENT ON COLUMN flingapp.work_history.wh_role IS 'The universally unique ID of a role that the freelancer took on the work experience.';
+COMMENT ON COLUMN flingapp.work_history.wh_payment_currency IS 'The payment currency for a piece of work experience';
+COMMENT ON COLUMN flingapp.work_history.wh_payment_rate IS 'The payment rate for a piece of work experience';
+COMMENT ON COLUMN flingapp.work_history.wh_main_work_item IS 'The main work item for a piece of work experience';
+COMMENT ON COLUMN flingapp.work_history.wh_finish_date IS 'The start date of a freelancer''s work experience';
+COMMENT ON COLUMN flingapp.work_history.wh_finish_date IS 'The start date of a freelancer''s work experience';
+COMMENT ON COLUMN flingapp.work_history.wh_performance IS 'A whole number integer rating of the freelancer''s performance';
+COMMENT ON COLUMN flingapp.work_history.wh_did_complete IS 'Whether the freelancer completed the project';
+COMMENT ON COLUMN flingapp.work_history.wh_reason_for_dropout IS 'A reason why the freelancer didn''t complete a project';
 
--- many-to-many mapping of files to work history 
+-- 20. many-to-many mapping of files to work history 
 CREATE TABLE flingapp.work_history_file_map(
-  id UUID DEFAULT gen_random_uuid(),
-  file UUID NOT NULL ,
-  experience UUID NOT NULL,
-  doc_type TEXT NOT NULL,
+  wh_file_map_id UUID DEFAULT gen_random_uuid(),
+  wh_file_map_file UUID NOT NULL ,
+  wh_file_map_exp UUID NOT NULL,
+  wh_file_map_doc_type TEXT NOT NULL,
   -- keys
-  CONSTRAINT work_history_file_map_pkkey PRIMARY KEY (file, experience),
-  CONSTRAINT work_history_file_map_file_fkey FOREIGN KEY (file)
-    REFERENCES flingapp_private.file_store (id) MATCH SIMPLE
+  CONSTRAINT work_history_file_map_pkkey PRIMARY KEY (wh_file_map_file, wh_file_map_exp),
+  CONSTRAINT work_history_file_map_file_fkey FOREIGN KEY (wh_file_map_file)
+    REFERENCES flingapp_private.file_store (fs_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT work_history_file_map_experience_fkey FOREIGN KEY (experience)
-    REFERENCES flingapp.work_history (id) MATCH SIMPLE
+  CONSTRAINT work_history_file_map_experience_fkey FOREIGN KEY (wh_file_map_exp)
+    REFERENCES flingapp.work_history (wh_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comment on file store to work history map
 COMMENT ON TABLE flingapp.work_history_file_map IS 'A map of work history to files';
-COMMENT ON COLUMN flingapp.work_history_file_map.id IS 'The universally unique ID of a map of a file to a piece of work experience';
-COMMENT ON COLUMN flingapp.work_history_file_map.file IS 'The universally unique ID of a file mapped to some work experience.';
-COMMENT ON COLUMN flingapp.work_history_file_map.experience IS 'The universally unique ID of some work experience mapped to a file.';
-COMMENT ON COLUMN flingapp.work_history_file_map.doc_type IS 'The type of document mapped to the work experience. E.g ''text''';
+COMMENT ON COLUMN flingapp.work_history_file_map.wh_file_map_id IS 'The universally unique ID of a map of a file to a piece of work experience';
+COMMENT ON COLUMN flingapp.work_history_file_map.wh_file_map_file IS 'The universally unique ID of a file mapped to some work experience.';
+COMMENT ON COLUMN flingapp.work_history_file_map.wh_file_map_exp IS 'The universally unique ID of some work experience mapped to a file.';
+COMMENT ON COLUMN flingapp.work_history_file_map.wh_file_map_doc_type IS 'The type of document mapped to the work experience. E.g ''text''';
 
 
--- core tag / note / comment store
+-- 21. core tag / note / comment store
+-- create table
 CREATE TABLE flingapp.text_note(
-  id UUID DEFAULT gen_random_uuid(),
-  body TEXT NOT NULL,
-  type flingapp.text_note_types NOT NULL,
-  owner UUID NOT NULL,
-  CONSTRAINT text_note_pkey PRIMARY KEY (id),
-  CONSTRAINT text_note_owner_fkey FOREIGN KEY (owner)
-    REFERENCES flingapp_private.user_account (id)
-    ON DELETE RESTRICT
+  txt_note_id UUID DEFAULT gen_random_uuid(),
+  txt_note_body TEXT NOT NULL,
+  txt_note_type flingapp.text_note_types NOT NULL,
+  txt_note_owner UUID NOT NULL,
+  CONSTRAINT text_note_pkey PRIMARY KEY (txt_note_id),
+  CONSTRAINT text_note_owner_fkey FOREIGN KEY (txt_note_owner)
+    REFERENCES flingapp_custom.user (user_id)
+    ON DELETE SET NULL
 );
 -- comment on text notes store
 COMMENT ON TABLE flingapp.text_note IS 'A store of all textual notes in the flingapp db';
-COMMENT ON COLUMN flingapp.text_note.id IS 'The universally unique ID of a text note';
-COMMENT ON COLUMN flingapp.text_note.body IS 'The body text of a text note';
-COMMENT ON COLUMN flingapp.text_note.type IS 'The type of the text note e.g. ''tag''';
-COMMENT ON COLUMN flingapp.text_note.owner IS 'The universally unique ID of the owner of the text note';
+COMMENT ON COLUMN flingapp.text_note.txt_note_id IS 'The universally unique ID of a text note';
+COMMENT ON COLUMN flingapp.text_note.txt_note_body IS 'The body text of a text note';
+COMMENT ON COLUMN flingapp.text_note.txt_note_type IS 'The type of the text note e.g. ''tag''';
+COMMENT ON COLUMN flingapp.text_note.txt_note_owner IS 'The universally unique ID of the owner of the text note';
 
 
--- many-to-many mapping of freelancers to text notes
+-- 22. many-to-many mapping of freelancers to text notes
 CREATE TABLE flingapp.freelancer_text_note_map(
-  id UUID DEFAULT gen_random_uuid(),
-  freelancer UUID NOT NULL,
-  text_note UUID NOT NULL,
-  CONSTRAINT freelancer_text_note_map_pkey PRIMARY KEY (freelancer, text_note),
-  CONSTRAINT freelancer_text_note_map_freelancer_fkey FOREIGN KEY (freelancer)
-    REFERENCES flingapp.freelancer (id)
+  fl_note_map_id UUID DEFAULT gen_random_uuid(),
+  fl_note_map_freelancer UUID NOT NULL,
+  fl_note_map_text_note UUID NOT NULL,
+  CONSTRAINT freelancer_text_note_map_pkey PRIMARY KEY (fl_note_map_freelancer, fl_note_map_text_note),
+  CONSTRAINT freelancer_text_note_map_freelancer_fkey FOREIGN KEY (fl_note_map_freelancer)
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (text_note)
-    REFERENCES flingapp.text_note (id)
+  CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (fl_note_map_text_note)
+    REFERENCES flingapp.text_note (txt_note_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
 COMMENT ON TABLE flingapp.freelancer_text_note_map IS 'A store of all mappings of text notes to freelancers';
-COMMENT ON COLUMN flingapp.freelancer_text_note_map.id IS 'The universally unique ID of a mapping between a text note and a freelancer';
-COMMENT ON COLUMN flingapp.freelancer_text_note_map.freelancer IS 'The universally unique ID of a freelancer mapped to a text note';
-COMMENT ON COLUMN flingapp.freelancer_text_note_map.text_note IS 'The universally unique ID of a text note mapped to a freelancer';
+COMMENT ON COLUMN flingapp.freelancer_text_note_map.fl_note_map_id IS 'The universally unique ID of a mapping between a text note and a freelancer';
+COMMENT ON COLUMN flingapp.freelancer_text_note_map.fl_note_map_freelancer IS 'The universally unique ID of a freelancer mapped to a text note';
+COMMENT ON COLUMN flingapp.freelancer_text_note_map.fl_note_map_text_note IS 'The universally unique ID of a text note mapped to a freelancer';
 
--- many-to-many mapping of projects to text notes
+-- 23. many-to-many mapping of projects to text notes
 CREATE TABLE flingapp.project_text_note_map(
-  id UUID DEFAULT gen_random_uuid(),
-  project UUID NOT NULL,
-  text_note UUID NOT NULL,
-  CONSTRAINT project_text_note_map_pkey PRIMARY KEY (project, text_note),
-  CONSTRAINT project_text_note_map_project_fkey FOREIGN KEY (project)
-    REFERENCES flingapp.freelancer (id)
+  proj_note_map_id UUID DEFAULT gen_random_uuid(),
+  proj_note_map_project UUID NOT NULL,
+  proj_note_map_text_note UUID NOT NULL,
+  CONSTRAINT project_text_note_map_pkey PRIMARY KEY (proj_note_map_project, proj_note_map_text_note),
+  CONSTRAINT project_text_note_map_project_fkey FOREIGN KEY (proj_note_map_project)
+    REFERENCES flingapp.freelancer (fl_id)
     ON DELETE RESTRICT,
-  CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (text_note)
-    REFERENCES flingapp.text_note (id)
+  CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (proj_note_map_text_note)
+    REFERENCES flingapp.text_note (txt_note_id)
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
 COMMENT ON TABLE flingapp.project_text_note_map IS 'A store of all mappings of text notes to projects';
-COMMENT ON COLUMN flingapp.project_text_note_map.id IS 'The universally unique ID of a mapping between a text note and a project';
-COMMENT ON COLUMN flingapp.project_text_note_map.project IS 'The universally unique ID of a project mapped to a text note';
-COMMENT ON COLUMN flingapp.project_text_note_map.text_note IS 'The universally unique ID of a text note mapped to a project';
+COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_id IS 'The universally unique ID of a mapping between a text note and a project';
+COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_project IS 'The universally unique ID of a project mapped to a text note';
+COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_text_note IS 'The universally unique ID of a text note mapped to a project';
 
-
--- many-to-many mapping of work history to text notes
+-- 24. many-to-many mapping of work history to text notes
 CREATE TABLE flingapp.work_history_text_note_map(
-  id UUID DEFAULT gen_random_uuid(),
-  work_history UUID NOT NULL,
-  text_note UUID NOT NULL,
-  CONSTRAINT work_history_text_note_map_pkey PRIMARY KEY (work_history, text_note),
-  CONSTRAINT work_history_text_note_map_work_history_fkey FOREIGN KEY (work_history)
-    REFERENCES flingapp.work_history (id)
+  wh_note_map_id UUID DEFAULT gen_random_uuid(),
+  wh_note_map_work_history UUID NOT NULL,
+  wh_note_map_text_note UUID NOT NULL,
+  CONSTRAINT work_history_text_note_map_pkey PRIMARY KEY (wh_note_map_work_history, wh_note_map_text_note),
+  CONSTRAINT work_history_text_note_map_work_history_fkey FOREIGN KEY (wh_note_map_work_history)
+    REFERENCES flingapp.work_history (wh_id)
     ON DELETE RESTRICT,
-  CONSTRAINT work_history_text_note_map_text_note_fkey FOREIGN KEY (text_note)
-    REFERENCES flingapp.text_note (id)
+  CONSTRAINT work_history_text_note_map_text_note_fkey FOREIGN KEY (wh_note_map_text_note)
+    REFERENCES flingapp.text_note (txt_note_id)
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
 COMMENT ON TABLE flingapp.work_history_text_note_map IS 'A store of all mappings of text notes to work history';
-COMMENT ON COLUMN flingapp.work_history_text_note_map.id IS 'The universally unique ID of a mapping between a text note and work history';
-COMMENT ON COLUMN flingapp.work_history_text_note_map.work_history IS 'The universally unique ID of work history mapped to a text note';
-COMMENT ON COLUMN flingapp.work_history_text_note_map.text_note IS 'The universally unique ID of a text note mapped to work history';
+COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_id IS 'The universally unique ID of a mapping between a text note and work history';
+COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_work_history IS 'The universally unique ID of work history mapped to a text note';
+COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_text_note IS 'The universally unique ID of a text note mapped to work history';
+
+-- VIEWS 
+-- create any necessary views across different schemas where we need a single or all select function
+
+-- 1. view over users only availalbe to fling app user and with RLS activated
+CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS 
+  SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_display_name
+  FROM flingapp_private.user_account u_acc, flingapp_custom.user u
+  WHERE u_acc.user_acc_id = u.user_id;
+ 
+-- AUTHENTICATION IMPLEMENTATION
+
+-- all types of users of the API
+CREATE TYPE flingapp.app_role as ENUM (
+  'flingapp_anonymous',
+  'flingapp_user',
+  'flingapp_postgraphql'
+);
+
+-- for JWT tokens
+CREATE TYPE flingapp.jwt_token as (
+  role flingapp.app_role,
+  user_acc_id UUID
+);
 
 commit;
 
 
--- let's create the functions that allow us to do stuff in our DB
+-- make sure we've reset permissions / cleared the white list to execute functions
+alter default privileges revoke execute on functions from public;
 
--- register a user
-CREATE FUNCTION flingapp.register_user(
+-- create the functions that allow us to do stuff in our DB
+--
+--
+-- ***** UTILITY FUNCTIONS *****
+
+-- 1. This is a simple standalone SQL-only function to generate
+-- random bytea values. It's fine for generating a few hundred kb.
+CREATE OR REPLACE FUNCTION flingapp_private.random_bytea(
+  bytea_length integer
+) RETURNS bytea AS $body$
+    SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+    FROM generate_series(1, $1);
+$body$
+LANGUAGE sql VOLATILE;
+COMMENT ON FUNCTION flingapp_private.random_bytea(integer) IS 'Generate n random bytes of garbage, returned as bytea. Slow for large values of n.';
+
+-- 2. set updated_at column on any rows updated
+CREATE OR REPLACE FUNCTION flingapp_private.set_updated_at() RETURNS trigger as $$
+begin
+  new.updated_at := timezone('utc'::text, now());
+  return new;
+end;
+$$ LANGUAGE plpgsql;
+
+-- ***** USER AUTHENTICATION *****
+-- 1. Authenticate and return a JWT
+CREATE OR REPLACE FUNCTION flingapp.authenticate(
+  email text,
+  password text
+) returns flingapp.jwt_token AS $$
+DECLARE
+  account flingapp_private.user_account;
+BEGIN
+  SELECT a.* into account
+  FROM flingapp_private.user_account AS a
+  WHERE a.user_email = email;
+
+  IF account.user_password_hash = crypt(password, account.user_password_hash) then
+    RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
+  ELSE
+    return null;
+  END if;
+END;
+$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
+
+-- 2. DEBUG: Get current user who is authenticated 
+CREATE OR REPLACE FUNCTION flingapp.current_person() returns flingapp.simple_user as $$
+  select *
+  from flingapp.simple_user
+  where user_id = current_setting('jwt.claims.user_acc_id')::UUID
+$$ language sql stable;
+comment on function flingapp.current_person() is 'Gets the person who was identified by our JWT.';
+
+
+-- ***** USER-RELATED CRUD *****
+
+-- 1. REGISTER a user
+CREATE OR REPLACE FUNCTION flingapp.usr_register_user(
   first_name text,
   last_name text,
   display_name text,
   email text,
   password text
-) returns flingapp.user as $$
+) RETURNS flingapp_custom.user as $$
 DECLARE
-  user flingapp.user;
+  user flingapp_custom.user;
   user_account flingapp_private.user_account;
 BEGIN
-  INSERT INTO flingapp_private.user_account (email, password_hash) VALUES
+  INSERT INTO flingapp_private.user_account (user_email, user_password_hash) VALUES
     (email, crypt(password, gen_salt('bf', 8)))
     RETURNING * into user_account;
 
-  INSERT INTO flingapp.user (id, first_name, last_name, display_name) VALUEs
-    (user_account.id, first_name, last_name, display_name)
+  INSERT INTO flingapp_custom.user (user_id, user_first_name, user_last_name, user_display_name) VALUEs
+    (user_account.user_acc_id, first_name, last_name, display_name)
     RETURNING * into user;
 
   RETURN user;
 END;
-$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.register_user(text, text, text, text, text) IS 'Registers a single user and creates an account in flingapp.';
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.usr_register_user(text, text, text, text, text) IS 'Registers a single `User` and creates an account in flingapp.';
 
 
+-- 2. UPDATE details about a user
+-- needs custom type first
+CREATE TYPE flingapp.full_user_detail AS (
+  user_id UUID,
+  user_email TEXT,
+  user_first_name TEXT,
+  user_last_name TEXT,
+  user_display_name TEXT
+);
+-- 2a. UPDATE BY ID
+CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_id(
+  user_id UUID,
+  user_email_in TEXT,
+  user_first_name_in TEXT,
+  user_last_name_in TEXT,
+  user_display_name_in TEXT
+) RETURNS flingapp.full_user_detail AS $$
+DECLARE 
+  result flingapp.full_user_detail;
+BEGIN
+  UPDATE flingapp_private.user_account
+  SET
+    user_email = $2
+  WHERE user_acc_id = $1;
+  
+  UPDATE flingapp_custom.user
+  SET
+    user_first_name = $3,
+    user_last_name = $4,
+    user_display_name = $5
+  WHERE user_id = $1;
+
+  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name, u.user_display_name INTO result
+  FROM flingapp_private.user_account acc, flingapp_custom.user u
+  WHERE acc.user_acc_id = $1 AND acc.user_acc_id = u.user_id;
+
+  RETURN result;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, text) IS 'Updates a single `User` using the supplied UUID';
+
+-- 2b. UPDATE BY EMAIL
+CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_email(
+  user_email_in TEXT,
+  user_first_name_in TEXT,
+  user_last_name_in TEXT,
+  user_display_name_in TEXT
+) RETURNS flingapp.full_user_detail AS $$
+DECLARE 
+  u_id UUID;
+  result flingapp.full_user_detail;
+BEGIN
+  SELECT user_acc_id FROM flingapp_private.user_account WHERE user_email = user_email_in INTO u_id;
+
+  UPDATE flingapp_custom.user
+  SET
+    user_first_name = $2,
+    user_last_name = $3,
+    user_display_name = $4
+  WHERE user_id = u_id;
+
+  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name, u.user_display_name INTO result
+  FROM flingapp_private.user_account acc, flingapp_custom.user u
+  WHERE acc.user_acc_id = u_id AND acc.user_acc_id = u.user_id;
+
+  RETURN result; 
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, text) IS 'Updates a single `User` using the supplied email address';
+
+-- 3. delete a user
+CREATE OR REPLACE FUNCTION flingapp.usr_delete_user_by_id(
+   user_id_in UUID
+) RETURNS flingapp_custom.user AS $$
+DECLARE
+  result flingapp_custom.user;
+BEGIN
+  DELETE FROM flingapp_private.user_account
+  WHERE user_acc_id = user_id_in;
+
+  DELETE FROM flingapp_custom.user
+  WHERE user_id = user_id_in
+  RETURNING * INTO result;
+
+  RETURN result; 
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.usr_delete_user_by_id(UUID) IS 'Deletes a single `User` using the supplied UUID';
+
+-- ***** TRIGGERS *****
+CREATE TRIGGER user_acc_updated_at BEFORE UPDATE
+  ON flingapp_private.user_account
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+CREATE TRIGGER user_updated_at BEFORE UPDATE
+  ON flingapp_custom.user
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+CREATE TRIGGER org_updated_at BEFORE UPDATE
+  ON flingapp.organization
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+CREATE TRIGGER fl_updated_at BEFORE UPDATE
+  ON flingapp.freelancer
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+CREATE TRIGGER fs_updated_at BEFORE UPDATE
+  ON flingapp_private.file_store
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+CREATE TRIGGER proj_updated_at BEFORE UPDATE
+  ON flingapp.project
+  FOR EACH ROW
+  EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
 
 -- create privileges for each account
@@ -1391,75 +1630,120 @@ COMMENT ON FUNCTION flingapp.register_user(text, text, text, text, text) IS 'Reg
 GRANT USAGE ON SCHEMA flingapp TO :flinganon, :flinguser;
 
 -- TABLE GRANTS
-GRANT SELECT ON TABLE flingapp.freelancer to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flinguser ;
+-- 1. user_account: N/A - it's in the private schema
 
-GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flinguser ;
+-- 2. user: N/A - it's in the custom schema
 
-GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.freelancer_role to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.organization to :flinganon, :flinguser;
+-- 3. organization
+GRANT SELECT ON TABLE flingapp.organization to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser ;
 
-GRANT SELECT ON TABLE flingapp.project to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.project_file_store_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.project_role_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.project_text_note_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.project_work_item_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.text_note to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.user to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.user to :flinguser ;
-
-GRANT SELECT ON TABLE flingapp.user_org_map to :flinganon, :flinguser;
+-- 4. user_org_map
+GRANT SELECT ON TABLE flingapp.user_org_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.user_org_map to :flinguser ;
 
-GRANT SELECT ON TABLE flingapp.work_history to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flinguser ;
+-- 5. freelancer
+GRANT SELECT ON TABLE flingapp.freelancer to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flinguser ;
 
-GRANT SELECT ON TABLE flingapp.work_history_file_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flinguser ;
+-- 6. freelancer_role
+GRANT SELECT ON TABLE flingapp.freelancer_role to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flinguser ;
 
-GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinganon, :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
+-- 7. freelancer_role_map
+GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flinguser ;
 
-GRANT SELECT ON TABLE flingapp.work_item to :flinganon, :flinguser;
+-- 8. freelancer_language_map
+GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flinguser ;
+
+-- 9. freelancer_employment_status_map
+GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flinguser ;
+
+-- 10. freelancer_external_links_map
+GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flinguser ;
+
+-- 11. file_store: N/A - it's in private schema and postgraphql can't do file uploads
+
+-- 12. freelancer_file_store_map
+GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flinguser ;
+
+-- 13. project
+GRANT SELECT ON TABLE flingapp.project to  :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project to :flinguser ;
+
+-- 14. project_freelancer_map
+GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flinguser ;
+
+-- 15. project_file_store_map
+GRANT SELECT ON TABLE flingapp.project_file_store_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flinguser ;
+
+-- 16. project_role_map
+GRANT SELECT ON TABLE flingapp.project_role_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flinguser ;
+
+-- 17. work_item
+GRANT SELECT ON TABLE flingapp.work_item to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flinguser ;
 
+-- 18. project_work_item_map
+GRANT SELECT ON TABLE flingapp.project_work_item_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flinguser ;
+
+-- 19. work_history
+GRANT SELECT ON TABLE flingapp.work_history to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flinguser ;
+
+-- 20. work_history_file_map
+GRANT SELECT ON TABLE flingapp.work_history_file_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flinguser ;
+
+-- 21. text_note
+GRANT SELECT ON TABLE flingapp.text_note to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flinguser ;
+
+-- 22. freelancer_text_note_map
+GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flinguser ;
+
+-- 23. project_text_note_map
+GRANT SELECT ON TABLE flingapp.project_text_note_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
+
+-- 24. work_history_text_note_map
+GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
+
+-- VIEW GRANTS
+-- 1. user_safe
+GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
+
 -- FUNCTION GRANTS
-GRANT EXECUTE ON FUNCTION flingapp.register_user(text, text, text, text, text) to :flinganon;
 
+GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text, text) to :flinganon;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.current_person() to :flinguser;
 
+-- RLS settings
+ALTER TABLE flingapp_custom.user ENABLE row level security;
+CREATE POLICY select_user ON flingapp_custom.user FOR SELECT
+  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE to flingapp_custom.user
+  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
+
+ALTER TABLE flingapp_private.user_account ENABLE row level security;
+CREATE POLICY select_user ON flingapp_private.user FOR SELECT
+  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY update_user ON flingapp_private.user FOR UPDATE to flingapp_private.user
+  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
 
