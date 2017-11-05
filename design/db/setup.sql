@@ -1447,7 +1447,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION flingapp.authenticate(
   email text,
   password text
-) returns flingapp.jwt_token AS $$
+) RETURNS flingapp.jwt_token AS $$
 DECLARE
   account flingapp_private.user_account;
 BEGIN
@@ -1465,12 +1465,15 @@ $$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
 
 -- 2. DEBUG: Get current user who is authenticated 
-CREATE OR REPLACE FUNCTION flingapp.current_person() returns flingapp.simple_user as $$
-  select *
-  from flingapp.simple_user
-  where user_id = current_setting('jwt.claims.user_acc_id')::UUID
-$$ language sql stable;
-comment on function flingapp.current_person() is 'Gets the person who was identified by our JWT.';
+CREATE OR REPLACE FUNCTION flingapp.this_user() 
+RETURNS flingapp.simple_user AS $$
+BEGIN
+  SELECT *
+  FROM flingapp.simple_user
+  WHERE user_id = current_setting('jwt.claims.user_acc_id')::UUID;
+END;
+$$ LANGUAGE plpgsql STABLE;
+COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified by our JWT.';
 
 
 -- ***** USER-RELATED CRUD *****
@@ -1731,19 +1734,19 @@ GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text,
 GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, text) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.current_person() to :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinguser;
 
 -- RLS settings
 ALTER TABLE flingapp_custom.user ENABLE row level security;
-CREATE POLICY select_user ON flingapp_custom.user FOR SELECT
+CREATE POLICY select_user ON flingapp_custom.user FOR SELECT TO flingapp_user
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE to flingapp_custom.user
+CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE TO flingapp_user
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
 ALTER TABLE flingapp_private.user_account ENABLE row level security;
-CREATE POLICY select_user ON flingapp_private.user FOR SELECT
-  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_private.user FOR UPDATE to flingapp_private.user
-  USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO flingapp_user
+  USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO flingapp_user
+  USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
 
