@@ -39,7 +39,7 @@ GRANT :flinguser to :flingpgql;
 
 \connect fling
 DROP SCHEMA IF EXISTS flingapp;
-DROP SCHEMA IF EXSITS flingapp_custom;
+DROP SCHEMA IF EXISTS flingapp_custom;
 DROP SCHEMA IF EXISTS flingapp_private;
 
 -- create the app schema and then create tables
@@ -1388,14 +1388,34 @@ COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_id IS 'The uni
 COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_work_history IS 'The universally unique ID of work history mapped to a text note';
 COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_text_note IS 'The universally unique ID of a text note mapped to work history';
 
--- VIEWS 
+-- 25. many-to-many mapping of freelancers with an organization
+CREATE TABLE flingapp.fl_org_map(
+  fl_org_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  fl_org_map_org UUID NOT NULL,
+  fl_org_map_fl UUID NOT NULL,
+  CONSTRAINT fl_org_map_key UNIQUE (fl_org_map_id),
+  CONSTRAINT fl_org_map_pkey PRIMARY KEY (fl_org_map_org, fl_org_map_fl),
+  CONSTRAINT fl_org_map_org_fkey FOREIGN KEY (fl_org_map_org) 
+    REFERENCES flingapp.organization (org_id) MATCH SIMPLE
+    ON DELETE RESTRICT,
+  CONSTRAINT freelancer_role_map_freelancer_fkey FOREIGN KEY (fl_org_map_fl) 
+    REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
+    ON DELETE RESTRICT
+);
+-- comments for the mapping of freelancers to roles
+COMMENT ON TABLE flingapp.fl_org_map IS 'A role that a freelancer can be assigned';
+COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_id IS 'The universally unique ID of a entry in the freelancer to organization mapping';
+COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_org IS 'The universally unique ID of an `Organization` in the freelancer to organization mapping';
+COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_fl IS 'The universally unique ID of a `Freelancer` in the freelancer to organization mapping';
+
+-- ***** VIEWS ***** 
 -- create any necessary views across different schemas where we need a single or all select function
 
 -- 1. view over users only availalbe to fling app user and with RLS activated
 CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS 
   SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_display_name
   FROM flingapp_private.user_account u_acc, flingapp_custom.user u
-  WHERE u_acc.user_acc_id = u.user_id;
+  WHERE u_acc.user_acc_id = u.user_id AND u.user_id = current_setting('jwt.claims.user_acc_id')::uuid;
  
 -- AUTHENTICATION IMPLEMENTATION
 
@@ -1494,7 +1514,7 @@ BEGIN
     (email, crypt(password, gen_salt('bf', 8)))
     RETURNING * into user_account;
 
-  INSERT INTO flingapp_custom.user (user_id, user_first_name, user_last_name, user_display_name) VALUEs
+  INSERT INTO flingapp_custom.user (user_id, user_first_name, user_last_name, user_display_name) VALUES
     (user_account.user_acc_id, first_name, last_name, display_name)
     RETURNING * into user;
 
@@ -1723,8 +1743,13 @@ GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
 GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
 
+-- 25. fl_org_map
+GRANT SELECT ON TABLE flingapp.fl_org_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.fl_org_map to :flinguser ;
+
+
 -- VIEW GRANTS
--- 1. user_safe
+-- 1. simple_user
 GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
 
 -- FUNCTION GRANTS
