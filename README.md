@@ -13,8 +13,10 @@ Run
 ````
 psql -f design/db/setup.sql
 psql -f design/db/seed-data-fixtures.sql
+npm install
 npm run dev
 ````
 
 to get the schema imported, import test data fixtures and run the postgraphql server. 
 
+N.B. You'll need to open a port on your server firewall ``5000`` using ``ufw`` or similar.
