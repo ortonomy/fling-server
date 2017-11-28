@@ -6,20 +6,15 @@
 
 Fling-server is a node.js & postgraphql backend for a flingapp front-end -- available [here](https://github.com/ortonomy/flingapp-frontend)
 
-Install dependencies:
+For now, only the postgraphql schema is ready for development purposes.
 
-``npm install`` OR ``yarn install``
+Run 
 
-Run app:
+````
+psql -f design/db/setup.sql
+psql -f design/db/seed-data-fixtures.sql
+npm run dev
+````
 
-!IMPORTANT: requires local postgresql server with a DB running on port ``5432`` named ``flingapp-dev``:
+to get the schema imported, import test data fixtures and run the postgraphql server. 
 
-``npm start`` OR ``yarn start``
-
-Build:
-
-``npm build`` OR ``yarn build``
-
-Serve:
-
-``npm serve`` OR ``yarn serve``
