@@ -19,6 +19,6 @@
     "start": "nodemon lib/app.js --exec babel-node --presets env",
     "build": "babel lib -d dist --presets env",
     "serve": "node dist/app.js",
-    "dev": "postgraphql --watch --connection postgres://flingapp_postgraphql:YourFlingAppPassword@localhost:5432/fling --schema flingapp --default-role flingapp_anonymous --token flingapp.jwt_token --secret develop.DEVELOP"
+    "dev": "postgraphql --host 127.0.0.1 --watch --connection postgres://flingapp_postgraphql:YourFlingAppPassword@localhost:5432/fling --schema flingapp --default-role flingapp_anonymous --token flingapp.jwt_token --secret develop.DEVELOP"
   }
 }
