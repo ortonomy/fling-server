@@ -3,25 +3,28 @@
 \set flingpgql 'flingapp_postgraphql'
 \set flinganon 'flingapp_anonymous'
 \set flinguser 'flingapp_user'
+
+-- set up your passwords here
+\set adminpass 'FlingAppMakesItEasy'
+\set pgqlpass 'YourFlingAppPassword'
+
 -- drop the app databse if it already exists
 DROP DATABASE IF EXISTS fling;
 
 -- create our database account owner and give it privileges
 -- change the password to your own for installation
 DROP ROLE IF EXISTS :flingadmin;
-CREATE ROLE :flingadmin WITH LOGIN PASSWORD 'FlingAppMakesItEasy';
+CREATE ROLE :flingadmin WITH LOGIN PASSWORD :'adminpass';
 
 -- create our awesome app db
 CREATE DATABASE fling WITH OWNER :flingadmin;
 -- give flingapp all privileges to create the DB
 GRANT ALL PRIVILEGES ON DATABASE fling TO :flingadmin;
--- remove all default privileges from public on functions
-ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM public;
 
 -- create our role that is used to login into postgres with postgraphql
 -- change the password to your own for installation
 DROP ROLE IF EXISTS :flingpgql;
-CREATE ROLE :flingpgql WITH LOGIN PASSWORD 'YourFlingAppPassword';
+CREATE ROLE :flingpgql WITH LOGIN PASSWORD :'pgqlpass';
 
 -- create our role that will be the default user before user logs in
 DROP ROLE IF EXISTS :flinganon;
@@ -882,12 +885,10 @@ CREATE TABLE flingapp_custom.user(
   user_id UUID NOT NULL,
   user_first_name TEXT NOT NULL,
   user_last_name TEXT NOT NULL,
-  user_display_name TEXT NOT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   -- keys
   CONSTRAINT user_pkey PRIMARY KEY (user_id),
-  CONSTRAINT user_display_name_key UNIQUE (user_display_name),
   CONSTRAINT user_id_fkey FOREIGN KEY (user_id)
     REFERENCES flingapp_private.user_account(user_acc_id) MATCH SIMPLE
     ON DELETE CASCADE
@@ -897,7 +898,6 @@ COMMENT ON TABLE flingapp_custom.user IS 'A human user of flingapp';
 COMMENT ON COLUMN flingapp_custom.user.user_id IS 'The universally unique ID of a user of flingapp. References flingapp account.';
 COMMENT ON COLUMN flingapp_custom.user.user_first_name IS 'The first, or given name, of a user of flingapp';
 COMMENT ON COLUMN flingapp_custom.user.user_last_name IS 'The family name, or last name, of a user of flingapp';
-COMMENT ON COLUMN flingapp_custom.user.user_display_name IS 'The username \/ display name of a user of flingapp';
 COMMENT ON COLUMN flingapp_custom.user.created_at IS 'The timestamp when the user was created';
 COMMENT ON COLUMN flingapp_custom.user.updated_at IS 'The timestamp when the user was last updated';
 
@@ -1413,7 +1413,7 @@ COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_fl IS 'The universally unique I
 
 -- 1. view over users only availalbe to fling app user and with RLS activated
 CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS 
-  SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_display_name
+  SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name
   FROM flingapp_private.user_account u_acc, flingapp_custom.user u
   WHERE u_acc.user_acc_id = u.user_id AND u.user_id = current_setting('jwt.claims.user_acc_id')::uuid;
  
@@ -1445,14 +1445,15 @@ alter default privileges revoke execute on functions from public;
 
 -- 1. This is a simple standalone SQL-only function to generate
 -- random bytea values. It's fine for generating a few hundred kb.
-CREATE OR REPLACE FUNCTION flingapp_private.random_bytea(
-  bytea_length integer
-) RETURNS bytea AS $body$
-    SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
-    FROM generate_series(1, $1);
+CREATE OR REPLACE FUNCTION flingapp_private.random_string(
+ length integer
+) RETURNS TEXT AS $body$
+    --SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0') ,''), 'hex')
+    --FROM generate_series(1, $1);
+    SELECT substring( encode(gen_random_bytes(length * 3/4 +1), 'base64'), 0, length );
 $body$
 LANGUAGE sql VOLATILE;
-COMMENT ON FUNCTION flingapp_private.random_bytea(integer) IS 'Generate n random bytes of garbage, returned as bytea. Slow for large values of n.';
+COMMENT ON FUNCTION flingapp_private.random_string(integer) IS 'Generate n random bytes of garbage, returned as text.';
 
 -- 2. set updated_at column on any rows updated
 CREATE OR REPLACE FUNCTION flingapp_private.set_updated_at() RETURNS trigger as $$
@@ -1464,6 +1465,8 @@ $$ LANGUAGE plpgsql;
 
 -- ***** USER AUTHENTICATION *****
 -- 1. Authenticate and return a JWT
+-- will only give user access if also confirmed email address.
+
 CREATE OR REPLACE FUNCTION flingapp.authenticate(
   email text,
   password text
@@ -1475,10 +1478,12 @@ BEGIN
   FROM flingapp_private.user_account AS a
   WHERE a.user_email = email;
 
-  IF account.user_password_hash = crypt(password, account.user_password_hash) then
+  IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
+    RETURN ('flingapp_anonymous', account.user_acc_id)::flingapp.jwt_token;
+  ELSIF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = true then
     RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
   ELSE
-    return null;
+    RETURN null;
   END if;
 END;
 $$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
@@ -1499,47 +1504,66 @@ COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified
 -- ***** USER-RELATED CRUD *****
 
 -- 1. REGISTER a user
+
+-- need custom type first
+-- return type for registration
+CREATE TYPE flingapp.registered_user as (
+  user_id UUID,
+  first_name TEXT,
+  last_name TEXT,
+  email TEXT,
+  account_selector TEXT,
+  account_verifier TEXT,
+  account_activated BOOLEAN
+);
+
+-- then function
 CREATE OR REPLACE FUNCTION flingapp.usr_register_user(
   first_name text,
   last_name text,
-  display_name text,
   email text,
   password text
-) RETURNS flingapp_custom.user as $$
+) RETURNS flingapp.registered_user as $$
 DECLARE
-  user flingapp_custom.user;
+  user_details flingapp_custom.user;
   user_account flingapp_private.user_account;
+  account_selector TEXT;
+  account_verifier TEXT;
 BEGIN
-  INSERT INTO flingapp_private.user_account (user_email, user_password_hash) VALUES
-    (email, crypt(password, gen_salt('bf', 8)))
+
+  SELECT flingapp_private.random_string(15) INTO account_selector;
+  SELECT flingapp_private.random_string(18) INTO account_verifier;
+
+  INSERT INTO flingapp_private.user_account (user_email, user_password_hash, user_email_confirm_token_selector, user_email_confirm_token_verifier_hash) VALUES
+    (email, crypt(password, gen_salt('bf', 8)), account_selector, crypt(account_verifier, gen_salt('bf', 8)))
     RETURNING * into user_account;
 
-  INSERT INTO flingapp_custom.user (user_id, user_first_name, user_last_name, user_display_name) VALUES
-    (user_account.user_acc_id, first_name, last_name, display_name)
-    RETURNING * into user;
+  INSERT INTO flingapp_custom.user (user_id, user_first_name, user_last_name) VALUES
+    (user_account.user_acc_id, first_name, last_name)
+    RETURNING * into user_details;
 
-  RETURN user;
+  RETURN (user_details.user_id, user_details.user_first_name, user_details.user_last_name, user_account.user_email, account_selector, account_verifier, FALSE)::flingapp.registered_user;
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_register_user(text, text, text, text, text) IS 'Registers a single `User` and creates an account in flingapp.';
+COMMENT ON FUNCTION flingapp.usr_register_user(text, text, text, text) IS 'Registers a single `User` and creates an account in flingapp.';
 
 
 -- 2. UPDATE details about a user
+
 -- needs custom type first
 CREATE TYPE flingapp.full_user_detail AS (
   user_id UUID,
   user_email TEXT,
   user_first_name TEXT,
-  user_last_name TEXT,
-  user_display_name TEXT
+  user_last_name TEXT
 );
+
 -- 2a. UPDATE BY ID
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_id(
   user_id UUID,
   user_email_in TEXT,
   user_first_name_in TEXT,
-  user_last_name_in TEXT,
-  user_display_name_in TEXT
+  user_last_name_in TEXT
 ) RETURNS flingapp.full_user_detail AS $$
 DECLARE 
   result flingapp.full_user_detail;
@@ -1552,11 +1576,10 @@ BEGIN
   UPDATE flingapp_custom.user
   SET
     user_first_name = $3,
-    user_last_name = $4,
-    user_display_name = $5
+    user_last_name = $4
   WHERE user_id = $1;
 
-  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name, u.user_display_name INTO result
+  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name INTO result
   FROM flingapp_private.user_account acc, flingapp_custom.user u
   WHERE acc.user_acc_id = $1 AND acc.user_acc_id = u.user_id;
 
@@ -1564,14 +1587,13 @@ BEGIN
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, text) IS 'Updates a single `User` using the supplied UUID';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) IS 'Updates a single `User` using the supplied UUID';
 
 -- 2b. UPDATE BY EMAIL
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_email(
   user_email_in TEXT,
   user_first_name_in TEXT,
-  user_last_name_in TEXT,
-  user_display_name_in TEXT
+  user_last_name_in TEXT
 ) RETURNS flingapp.full_user_detail AS $$
 DECLARE 
   u_id UUID;
@@ -1582,11 +1604,10 @@ BEGIN
   UPDATE flingapp_custom.user
   SET
     user_first_name = $2,
-    user_last_name = $3,
-    user_display_name = $4
+    user_last_name = $3
   WHERE user_id = u_id;
 
-  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name, u.user_display_name INTO result
+  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name INTO result
   FROM flingapp_private.user_account acc, flingapp_custom.user u
   WHERE acc.user_acc_id = u_id AND acc.user_acc_id = u.user_id;
 
@@ -1594,7 +1615,7 @@ BEGIN
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, text) IS 'Updates a single `User` using the supplied email address';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) IS 'Updates a single `User` using the supplied email address';
 
 -- 3. delete a user
 CREATE OR REPLACE FUNCTION flingapp.usr_delete_user_by_id(
@@ -1754,24 +1775,24 @@ GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
 
 -- FUNCTION GRANTS
 
-GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text, text) to :flinganon;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, text) to :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinguser;
 
 -- RLS settings
 ALTER TABLE flingapp_custom.user ENABLE row level security;
-CREATE POLICY select_user ON flingapp_custom.user FOR SELECT TO flingapp_user
+CREATE POLICY select_user ON flingapp_custom.user FOR SELECT TO :flinguser
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE TO flingapp_user
+CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE TO :flinguser
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
 ALTER TABLE flingapp_private.user_account ENABLE row level security;
-CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO flingapp_user
+CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flinguser
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO flingapp_user
+CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
 
