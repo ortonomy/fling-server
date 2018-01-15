@@ -14,7 +14,8 @@
     "express-http-proxy": "^1.1.0",
     "http-proxy-middleware": "^0.17.4",
     "postgraphql": "^3.5.4",
-    "request": "^2.83.0"
+    "request": "^2.83.0",
+    "sparkpost": "^2.1.2"
   },
   "devDependencies": {
     "babel-cli": "^6.24.1",

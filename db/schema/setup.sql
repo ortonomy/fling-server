@@ -1489,7 +1489,7 @@ END;
 $$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
 
--- 2. DEBUG: Get current user who is authenticated 
+-- 2. Get current user who is authenticated 
 CREATE OR REPLACE FUNCTION flingapp.this_user() 
 RETURNS flingapp.simple_user AS $$
 BEGIN
@@ -1500,6 +1500,36 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified by our JWT.';
 
+-- 3. Activate a user after with their activation tokens
+CREATE OR REPLACE FUNCTION flingapp.activate_user(
+  selector text,
+  verifier text
+) RETURNS flingapp.simple_user AS $$
+DECLARE
+ account flingapp_private.user_account;
+ result flingapp.simple_user;
+BEGIN
+  SELECT pa.* INTO account
+  FROM flingapp_private.user_account AS pa
+  WHERE selector = pa.user_email_confirm_token_selector;
+
+  IF account.user_email_confirm_token_verifier_hash = crypt(verifier, account.user_email_confirm_token_verifier_hash) 
+  THEN
+    UPDATE flingapp_private.user_account AS pa
+      SET user_email_confirmed = true
+      WHERE pa.user_acc_id = account.user_acc_id;
+
+    SELECT * INTO result
+    FROM flingapp.simple_user as su
+    WHERE account.user_acc_id = su.user_acc_id;
+
+    RETURN result;
+  ELSE
+    RETURN NULL;
+  END if;
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
 
 -- ***** USER-RELATED CRUD *****
 
@@ -1780,6 +1810,7 @@ GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text)
 GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.activate_user(text,text) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinguser;
 
 -- RLS settings
