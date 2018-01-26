@@ -5,7 +5,7 @@ SET ROLE :flingadmin;
 
 DO $$
 DECLARE  
-   user1 flingapp_custom.user;
+   user1 flingapp.registered_user;
    org1 uuid;
    user_org_map1 flingapp.user_org_map;
    freelancer1 flingapp.freelancer;
@@ -16,7 +16,7 @@ DECLARE
    role3 flingapp.freelancer_role;
 BEGIN  
   -- register a user
-  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', display_name:='ortonomy', email:='dbdesign@ortonomy.com', password:='12345678');
+  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='dev@ortonomy.co', password:='12345678');
   RAISE NOTICE 'New user is: %', user1;
   RAISE NOTICE 'New user ID: % ', user1.user_id;
   

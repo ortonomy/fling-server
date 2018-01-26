@@ -1478,9 +1478,10 @@ BEGIN
   FROM flingapp_private.user_account AS a
   WHERE a.user_email = email;
 
-  IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
-    RETURN ('flingapp_anonymous', account.user_acc_id)::flingapp.jwt_token;
-  ELSIF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = true then
+  --IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
+  --  RETURN ('flingapp_anonymous', account.user_acc_id)::flingapp.jwt_token;
+  -- AND account.user_email_confirmed = true
+  IF account.user_password_hash = crypt(password, account.user_password_hash)  then
     RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
   ELSE
     RETURN null;
@@ -1492,12 +1493,16 @@ COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token th
 -- 2. Get current user who is authenticated 
 CREATE OR REPLACE FUNCTION flingapp.this_user() 
 RETURNS flingapp.simple_user AS $$
+DECLARE 
+  result flingapp.simple_user;
 BEGIN
-  SELECT *
-  FROM flingapp.simple_user
-  WHERE user_id = current_setting('jwt.claims.user_acc_id')::UUID;
+  SELECT * INTO result
+  FROM flingapp.simple_user as su
+  WHERE su.user_acc_id = current_setting('jwt.claims.user_acc_id')::UUID;
+
+  RETURN result;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified by our JWT.';
 
 -- 3. Activate a user after with their activation tokens
@@ -1802,16 +1807,17 @@ GRANT UPDATE, DELETE ON TABLE flingapp.fl_org_map to :flinguser ;
 -- VIEW GRANTS
 -- 1. simple_user
 GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flinguser;
 
 -- FUNCTION GRANTS
 
 GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flinguser, :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flinguser, :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.activate_user(text,text) to :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinganon, :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser;
 
 -- RLS settings
 ALTER TABLE flingapp_custom.user ENABLE row level security;
@@ -1825,5 +1831,3 @@ CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flingu
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
-
-
