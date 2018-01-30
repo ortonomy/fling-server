@@ -24,7 +24,7 @@ DECLARE
    role3 flingapp.freelancer_role;
 BEGIN  
   -- register a user
-  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='dev@ortonomy.co', password:='12345678');
+  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='testing@ortonomy.co', password:='12345678');
   RAISE NOTICE 'New user is: %', user1;
   RAISE NOTICE 'New user ID: % ', user1.user_id;
   
@@ -40,7 +40,7 @@ BEGIN
   VALUES (
     'ORTONOMY',
     user1.user_id,
-    'ortonomy.com'
+    'ortonomy.co'
   )
   RETURNING org_id INTO org1;
   RAISE NOTICE 'New org ID is: %', org1;
