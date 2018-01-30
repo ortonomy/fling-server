@@ -1,13 +1,21 @@
 -- connect to the DB
 \set flingadmin 'flingapp_admin'
+
+
+
 \connect fling
+
+
+
 SET ROLE :flingadmin;
+
+
+
 
 DO $$
 DECLARE  
    user1 flingapp.registered_user;
    org1 uuid;
-   user_org_map1 flingapp.user_org_map;
    freelancer1 flingapp.freelancer;
    freelancer2 flingapp.freelancer;
    freelancer3 flingapp.freelancer;
@@ -20,6 +28,9 @@ BEGIN
   RAISE NOTICE 'New user is: %', user1;
   RAISE NOTICE 'New user ID: % ', user1.user_id;
   
+
+
+
   -- create a new organization
   INSERT INTO flingapp.organization(
     org_name,
@@ -34,19 +45,16 @@ BEGIN
   RETURNING org_id INTO org1;
   RAISE NOTICE 'New org ID is: %', org1;
 
-  -- create a new user to org map
-  INSERT INTO flingapp.user_org_map(
-    u_o_map_org_id,
-    u_o_map_user_id,
-    u_o_map_org_access
-  )
-  VALUES (
-    org1,
-    user1.user_id,
-    true
-  )
-  RETURNING * INTO user_org_map1;
-  RAISE NOTICE 'New user org map is:  %', user_org_map1;
+
+
+
+  UPDATE flingapp_custom.user
+  SET 
+    user_org = org1
+  WHERE flingapp_custom.user.user_id = user1.user_id;
+
+
+
 
   -- create a bunch of freelancers
   -- 1. 
@@ -128,6 +136,9 @@ BEGIN
   RAISE NOTICE 'New freelancers #2 is: %', freelancer2;
   RAISE NOTICE 'New freelancers #3 is: %', freelancer3;
 
+
+
+
   -- insert a bunch of freelancer roles
   -- 1.
   INSERT INTO flingapp.freelancer_role (
@@ -153,6 +164,9 @@ BEGIN
   RAISE NOTICE 'New role #1 is: %', role1;
   RAISE NOTICE 'New role #2 is: %', role2;
   RAISE NOTICE 'New role #3 is: %', role3;
+
+
+
 
   -- create a bunch of roles to freelancer maps
   INSERT INTO flingapp.freelancer_role_map (
@@ -181,10 +195,13 @@ BEGIN
     role3.fl_role_id
   );
 
+
+
+
   -- map the freelancers to the org
-  INSERT INTO flingapp.fl_org_map (
-    fl_org_map_org,
-    fl_org_map_fl
+  INSERT INTO flingapp.freelancer_org_map (
+    freelancer_org_map_org,
+    freelancer_org_map_freelancer
   )
   VALUES 
   (

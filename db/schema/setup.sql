@@ -1,62 +1,110 @@
+end;
+-- drop the app databse if it already exists
+DROP DATABASE IF EXISTS fling;
+
+
+
+
 -- set some variables for our new users
 \set flingadmin 'flingapp_admin'
 \set flingpgql 'flingapp_postgraphql'
 \set flinganon 'flingapp_anonymous'
 \set flinguser 'flingapp_user'
 
+
+
+
+-- drop all roles if they exist in postgres instance
+DROP ROLE IF EXISTS :flingadmin;
+DROP ROLE IF EXISTS :flingpgql;
+DROP ROLE IF EXISTS :flinganon;
+DROP ROLE IF EXISTS :flinguser;
+
+
+
+
 -- set up your passwords here
 \set adminpass 'FlingAppMakesItEasy'
 \set pgqlpass 'YourFlingAppPassword'
 
--- drop the app databse if it already exists
-DROP DATABASE IF EXISTS fling;
+
+
 
 -- create our database account owner and give it privileges
 -- change the password to your own for installation
-DROP ROLE IF EXISTS :flingadmin;
 CREATE ROLE :flingadmin WITH LOGIN PASSWORD :'adminpass';
-
--- create our awesome app db
-CREATE DATABASE fling WITH OWNER :flingadmin;
--- give flingapp all privileges to create the DB
-GRANT ALL PRIVILEGES ON DATABASE fling TO :flingadmin;
 
 -- create our role that is used to login into postgres with postgraphql
 -- change the password to your own for installation
-DROP ROLE IF EXISTS :flingpgql;
 CREATE ROLE :flingpgql WITH LOGIN PASSWORD :'pgqlpass';
 
 -- create our role that will be the default user before user logs in
-DROP ROLE IF EXISTS :flinganon;
 CREATE ROLE :flinganon;
+
 -- create our role that will be the default user after user logs in
-DROP ROLE IF EXISTS :flinguser;
 CREATE ROLE :flinguser;
+
+
+
+
+-- create our awesome app db
+CREATE DATABASE fling WITH OWNER :flingadmin;
+
+
+
+
+-- grants
+-- give flingapp all privileges to create the DB
+GRANT ALL PRIVILEGES ON DATABASE fling TO :flingadmin;
 
 -- make sure that the flingadmin can do everything the postgraphql user can do
 GRANT :flingpgql to :flingadmin;
+
 -- make sure that postgraphql user can do everything the anonymouse can.
 GRANT :flinganon to :flingpgql;
+
 -- make sure that postgraphql user can do everything a user can.
 GRANT :flinguser to :flingpgql;
 
-\connect fling
-DROP SCHEMA IF EXISTS flingapp;
-DROP SCHEMA IF EXISTS flingapp_custom;
-DROP SCHEMA IF EXISTS flingapp_private;
 
--- create the app schema and then create tables
-begin;
+
+-- connect
+\connect fling
+
+
+
+
+-- db crypto setup for password hashing and salting
 -- must be superuser to add this extension
 CREATE EXTENSION IF NOT EXISTS pgcrypto; 
+
+
+
+
+-- set role of future everything
+--  we want the flingapp user to be the role that owns the tables so postgraphql has the correct permissions
+SET ROLE :flingadmin;
+
+
+
+
+-- SCHEMAS
+
+-- remove the schemas if they exist
+DROP SCHEMA IF EXISTS flingapp_private;
+DROP SCHEMA IF EXISTS flingapp_custom;
+DROP SCHEMA IF EXISTS flingapp;
+
+-- create the app schema and then create tables
 -- add schemas
 CREATE SCHEMA IF NOT EXISTS flingapp AUTHORIZATION :flingadmin;
 CREATE SCHEMA IF NOT EXISTS flingapp_private AUTHORIZATION :flingadmin;
 CREATE SCHEMA IF NOT EXISTS flingapp_custom AUTHORIZATION :flingadmin;
---  we want the flingapp user to be the role that owns the tables so postgraphql has the correct permissions
-SET ROLE :flingadmin;
 
--- let's make our types 
+
+
+
+-- TYPES
 
 -- freelancer location. 
 DROP TYPE IF EXISTS flingapp.country CASCADE;
@@ -262,6 +310,10 @@ CREATE TYPE flingapp.country AS ENUM(
 -- comments for country 
 COMMENT ON TYPE flingapp.country IS 'A type listing all the countries in the world';
 
+
+
+
+
 -- languages that the freelancer can deploy
 DROP TYPE IF EXISTS flingapp.language CASCADE;
 CREATE TYPE flingapp.language AS ENUM(
@@ -308,6 +360,9 @@ CREATE TYPE flingapp.language AS ENUM(
 );
 -- comments for languages
 COMMENT ON TYPE flingapp.language IS 'A type listing all languages (within reason) that a freelancer can speak.';
+
+
+
 
 -- timezone type
 DROP TYPE IF EXISTS flingapp.timezone CASCADE;
@@ -814,6 +869,9 @@ CREATE TYPE flingapp.timezone AS ENUM(
 -- comments for timezone
 COMMENT ON TYPE flingapp.timezone IS 'A type listing all the timezones on Earth including DST adjustments (if any)';
 
+
+
+
 -- freelancer employment status 
 DROP TYPE IF EXISTS flingapp.employment_status CASCADE;
 CREATE TYPE flingapp.employment_status AS ENUM(
@@ -825,6 +883,9 @@ CREATE TYPE flingapp.employment_status AS ENUM(
 );
 COMMENT ON TYPE flingapp.employment_status IS 'A list of all the employment statuses for freelancers';
 
+
+
+
 -- currency types for project payments
 DROP TYPE IF EXISTS flingapp.payment_currency CASCADE;
 CREATE TYPE flingapp.payment_currency AS ENUM(
@@ -835,6 +896,9 @@ CREATE TYPE flingapp.payment_currency AS ENUM(
 );
 COMMENT ON TYPE flingapp.payment_currency IS 'A list of all the possible payment currencies';
 
+
+
+
 --  text note types
 DROP TYPE IF EXISTS flingapp.text_note_types CASCADE;
 CREATE TYPE flingapp.text_note_types AS ENUM(
@@ -842,10 +906,23 @@ CREATE TYPE flingapp.text_note_types AS ENUM(
   'comment',
   'note'
 );
-COMMENT ON TYPE flingapp.payment_currency IS 'A list of all the possible text note tyeps';
+COMMENT ON TYPE flingapp.payment_currency IS 'A list of all the possible text note types';
 
 
--- let's make our tables
+
+
+-- user type
+DROP TYPE IF EXISTS flingapp.user_type CASCADE;
+CREATE TYPE flingapp.user_type AS ENUM(
+  'USER',
+  'FREELANCER'
+);
+COMMENT ON TYPE flingapp.user_type IS 'A list of all the possible interactive user types';
+
+
+
+
+-- TABLES
 
 -- 1. our core app user private account information
 CREATE TABLE flingapp_private.user_account(
@@ -880,11 +957,16 @@ COMMENT ON COLUMN flingapp_private.user_account.user_password_reset_token_expiry
 COMMENT ON COLUMN flingapp_private.user_account.created_at IS 'The timestamp when the user was created.';
 COMMENT ON COLUMN flingapp_private.user_account.updated_at IS 'The timestamp when the user was last updated';
 
+
+
+
 -- 2. our core app user profile information 
 CREATE TABLE flingapp_custom.user(
   user_id UUID NOT NULL,
   user_first_name TEXT NOT NULL,
   user_last_name TEXT NOT NULL,
+  user_org UUID,
+  user_type flingapp.user_type NOT NULL DEFAULT 'USER',
   created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   -- keys
@@ -898,6 +980,8 @@ COMMENT ON TABLE flingapp_custom.user IS 'A human user of flingapp';
 COMMENT ON COLUMN flingapp_custom.user.user_id IS 'The universally unique ID of a user of flingapp. References flingapp account.';
 COMMENT ON COLUMN flingapp_custom.user.user_first_name IS 'The first, or given name, of a user of flingapp';
 COMMENT ON COLUMN flingapp_custom.user.user_last_name IS 'The family name, or last name, of a user of flingapp';
+COMMENT ON COLUMN flingapp_custom.user.user_org IS 'The universally unique ID of an organization that the user belongs to';
+COMMENT ON COLUMN flingapp_custom.user.user_type IS 'The type of user, default: USER';
 COMMENT ON COLUMN flingapp_custom.user.created_at IS 'The timestamp when the user was created';
 COMMENT ON COLUMN flingapp_custom.user.updated_at IS 'The timestamp when the user was last updated';
 
@@ -927,33 +1011,43 @@ COMMENT ON COLUMN flingapp.organization.org_domain IS 'A unique FQDN used to hel
 COMMENT ON COLUMN flingapp.organization.created_at IS 'The timestamp when the organization was created.'; 
 COMMENT ON COLUMN flingapp.organization.updated_at IS 'The timestamp when the organization was last updated.'; 
 
--- 4. many-to-many mapping table of organization to users
-CREATE TABLE flingapp.user_org_map(
-  u_o_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
-  u_o_map_org_id UUID NOT NULL,
-  u_o_map_user_id UUID NOT NULL,
-  u_o_map_org_access BOOLEAN NOT NULL DEFAULT FALSE,
-  u_o_map_org_access_requested BOOLEAN NOT NULL DEFAULT FALSE,
-  u_o_map_org_access_key_selector TEXT DEFAULT NULL,
-  u_o_map_org_access_key_verifier_hash TEXT DEFAULT NULL,
-  -- keys
-  CONSTRAINT user_org_map_pkey PRIMARY KEY (u_o_map_org_id, u_o_map_user_id),
-  CONSTRAINT user_org_map_organization_fkey FOREIGN KEY (u_o_map_org_id)
-    REFERENCES flingapp.organization(org_id) MATCH SIMPLE
-    ON DELETE RESTRICT,
-  CONSTRAINT users_org_map_user_fkey FOREIGN KEY (u_o_map_user_id)
-    REFERENCES flingapp_custom.user(user_id) MATCH SIMPLE
-    ON DELETE CASCADE
-);
--- comments for user account to organization many-to-many
-COMMENT ON TABLE flingapp.user_org_map IS 'A many-to-many mapping of users to organizations';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_id IS 'The universally unique ID of a user to organization map entry';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_id IS 'An organization''s name - references organization table';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_user_id IS 'A UUID of a user. References users.';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access IS 'Does the user have access to this org yet?';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_requested IS 'Whether the user has requested access to this org';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_key_selector IS 'The first part (selector) of the split token for requesting access to an organization';
-COMMENT ON COLUMN flingapp.user_org_map.u_o_map_org_access_key_verifier_hash IS 'The salted hash of the second part (verifier) of the split token for requesting access to an organization';
+
+-- quick fix for table #2 only existing after creation
+ALTER TABLE IF EXISTS flingapp_custom.user
+  ADD CONSTRAINT user_org_fkey FOREIGN KEY (user_org)
+    REFERENCES flingapp.organization(org_id) MATCH SIMPLE;
+
+
+-- -- 4. many-to-many mapping table of organization to users
+-- CREATE TABLE flingapp.user_org_map(
+--   user_org_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+--   user_org_map_org_id UUID NOT NULL,
+--   user_org_map_user_id UUID NOT NULL,
+--   user_org_map_user_type flingapp.user_type NOT NULL DEFAULT 'FREELANCER',
+--   user_org_map_org_access BOOLEAN NOT NULL DEFAULT FALSE,
+--   user_org_map_org_access_requested BOOLEAN NOT NULL DEFAULT FALSE,
+--   user_org_map_org_access_key_selector TEXT DEFAULT NULL,
+--   user_org_map_org_access_key_verifier_hash TEXT DEFAULT NULL,
+--   -- keys
+--   CONSTRAINT user_org_map_id_pkey PRIMARY KEY (user_org_map_id),
+--   CONSTRAINT user_org_map_ukey UNIQUE (user_org_map_org_id, user_org_map_user_id),
+--   CONSTRAINT user_org_map_organization_fkey FOREIGN KEY (user_org_map_org_id)
+--     REFERENCES flingapp.organization(org_id) MATCH SIMPLE
+--     ON DELETE RESTRICT,
+--   CONSTRAINT users_org_map_user_fkey FOREIGN KEY (user_org_map_user_id)
+--     REFERENCES flingapp_custom.user(user_id) MATCH SIMPLE
+--     ON DELETE CASCADE
+-- );
+-- -- comments for user account to organization many-to-many
+-- COMMENT ON TABLE flingapp.user_org_map IS 'A many-to-many mapping of users to organizations';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_id IS 'The universally unique ID of a user to organization map entry';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_org_id IS 'An organization''s name - references organization table';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_user_id IS 'A UUID of a user. References users.';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_user_type IS 'A type for the user - organization user or a freelancer';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_org_access IS 'Does the user have access to this org yet?';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_org_access_requested IS 'Whether the user has requested access to this org';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_org_access_key_selector IS 'The first part (selector) of the split token for requesting access to an organization';
+-- COMMENT ON COLUMN flingapp.user_org_map.user_org_map_org_access_key_verifier_hash IS 'The salted hash of the second part (verifier) of the split token for requesting access to an organization';
 
 -- 5. core freelancer entity
 CREATE TABLE flingapp.freelancer(
@@ -1369,6 +1463,10 @@ COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_id IS 'The univer
 COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_project IS 'The universally unique ID of a project mapped to a text note';
 COMMENT ON COLUMN flingapp.project_text_note_map.proj_note_map_text_note IS 'The universally unique ID of a text note mapped to a project';
 
+
+
+
+
 -- 24. many-to-many mapping of work history to text notes
 CREATE TABLE flingapp.work_history_text_note_map(
   wh_note_map_id UUID DEFAULT gen_random_uuid(),
@@ -1388,36 +1486,53 @@ COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_id IS 'The uni
 COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_work_history IS 'The universally unique ID of work history mapped to a text note';
 COMMENT ON COLUMN flingapp.work_history_text_note_map.wh_note_map_text_note IS 'The universally unique ID of a text note mapped to work history';
 
+
+
+
 -- 25. many-to-many mapping of freelancers with an organization
-CREATE TABLE flingapp.fl_org_map(
-  fl_org_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
-  fl_org_map_org UUID NOT NULL,
-  fl_org_map_fl UUID NOT NULL,
-  CONSTRAINT fl_org_map_key UNIQUE (fl_org_map_id),
-  CONSTRAINT fl_org_map_pkey PRIMARY KEY (fl_org_map_org, fl_org_map_fl),
-  CONSTRAINT fl_org_map_org_fkey FOREIGN KEY (fl_org_map_org) 
+CREATE TABLE flingapp.freelancer_org_map(
+  freelancer_org_map_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  freelancer_org_map_org UUID NOT NULL,
+  freelancer_org_map_freelancer UUID NOT NULL,
+  CONSTRAINT fl_org_map_key PRIMARY KEY (freelancer_org_map_id),
+  CONSTRAINT fl_org_map_pkey UNIQUE (freelancer_org_map_org, freelancer_org_map_freelancer),
+  CONSTRAINT fl_org_map_org_fkey FOREIGN KEY (freelancer_org_map_org) 
     REFERENCES flingapp.organization (org_id) MATCH SIMPLE
     ON DELETE RESTRICT,
-  CONSTRAINT freelancer_role_map_freelancer_fkey FOREIGN KEY (fl_org_map_fl) 
+  CONSTRAINT freelancer_role_map_freelancer_fkey FOREIGN KEY (freelancer_org_map_freelancer) 
     REFERENCES flingapp.freelancer (fl_id) MATCH SIMPLE
     ON DELETE RESTRICT
 );
 -- comments for the mapping of freelancers to roles
-COMMENT ON TABLE flingapp.fl_org_map IS 'A role that a freelancer can be assigned';
-COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_id IS 'The universally unique ID of a entry in the freelancer to organization mapping';
-COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_org IS 'The universally unique ID of an `Organization` in the freelancer to organization mapping';
-COMMENT ON COLUMN flingapp.fl_org_map.fl_org_map_fl IS 'The universally unique ID of a `Freelancer` in the freelancer to organization mapping';
+COMMENT ON TABLE flingapp.freelancer_org_map IS 'A role that a freelancer can be assigned';
+COMMENT ON COLUMN flingapp.freelancer_org_map.freelancer_org_map_id IS 'The universally unique ID of a entry in the freelancer to organization mapping';
+COMMENT ON COLUMN flingapp.freelancer_org_map.freelancer_org_map_org IS 'The universally unique ID of an `Organization` in the freelancer to organization mapping';
+COMMENT ON COLUMN flingapp.freelancer_org_map.freelancer_org_map_freelancer IS 'The universally unique ID of a `Freelancer` in the freelancer to organization mapping';
+
+
+
 
 -- ***** VIEWS ***** 
 -- create any necessary views across different schemas where we need a single or all select function
 
 -- 1. view over users only availalbe to fling app user and with RLS activated
 CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS 
-  SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name
+  SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_org
   FROM flingapp_private.user_account u_acc, flingapp_custom.user u
   WHERE u_acc.user_acc_id = u.user_id AND u.user_id = current_setting('jwt.claims.user_acc_id')::uuid;
+
+
+
+
+
+-- ***** IN SCRIPT REQUIREMENTS *****
+-- make sure we've reset permissions / cleared the white list to execute functions
+alter default privileges revoke execute on functions from public;
+
  
--- AUTHENTICATION IMPLEMENTATION
+
+
+-- ***** JWT IMPLEMENTATION ******
 
 -- all types of users of the API
 CREATE TYPE flingapp.app_role as ENUM (
@@ -1426,22 +1541,46 @@ CREATE TYPE flingapp.app_role as ENUM (
   'flingapp_postgraphql'
 );
 
+
 -- for JWT tokens
 CREATE TYPE flingapp.jwt_token as (
   role flingapp.app_role,
   user_acc_id UUID
 );
 
-commit;
 
 
--- make sure we've reset permissions / cleared the white list to execute functions
-alter default privileges revoke execute on functions from public;
 
--- create the functions that allow us to do stuff in our DB
---
---
+-- ***** MISC CUSTOM TYPES ***** 
+
+
+-- return type for user_register_user
+CREATE TYPE flingapp.registered_user as (
+  user_id UUID,
+  first_name TEXT,
+  last_name TEXT,
+  email TEXT,
+  account_selector TEXT,
+  account_verifier TEXT,
+  account_activated BOOLEAN
+);
+
+
+
+
+-- return type for user CRUD
+CREATE TYPE flingapp.full_user_detail AS (
+  user_id UUID,
+  user_email TEXT,
+  user_first_name TEXT,
+  user_last_name TEXT
+);
+
+
+
+
 -- ***** UTILITY FUNCTIONS *****
+-- all custom functions in DB (that are not automatically generated by postgraphql)
 
 -- 1. This is a simple standalone SQL-only function to generate
 -- random bytea values. It's fine for generating a few hundred kb.
@@ -1455,104 +1594,32 @@ $body$
 LANGUAGE sql VOLATILE;
 COMMENT ON FUNCTION flingapp_private.random_string(integer) IS 'Generate n random bytes of garbage, returned as text.';
 
+
+
+
 -- 2. set updated_at column on any rows updated
 CREATE OR REPLACE FUNCTION flingapp_private.set_updated_at() RETURNS trigger as $$
-begin
+BEGIN
   new.updated_at := timezone('utc'::text, now());
   return new;
-end;
+END;
 $$ LANGUAGE plpgsql;
 
--- ***** USER AUTHENTICATION *****
--- 1. Authenticate and return a JWT
--- will only give user access if also confirmed email address.
 
-CREATE OR REPLACE FUNCTION flingapp.authenticate(
-  email text,
-  password text
-) RETURNS flingapp.jwt_token AS $$
-DECLARE
-  account flingapp_private.user_account;
-BEGIN
-  SELECT a.* into account
-  FROM flingapp_private.user_account AS a
-  WHERE a.user_email = email;
 
-  --IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
-  --  RETURN ('flingapp_anonymous', account.user_acc_id)::flingapp.jwt_token;
-  -- AND account.user_email_confirmed = true
-  IF account.user_password_hash = crypt(password, account.user_password_hash)  then
-    RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
-  ELSE
-    RETURN null;
-  END if;
-END;
-$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
 
--- 2. Get current user who is authenticated 
-CREATE OR REPLACE FUNCTION flingapp.this_user() 
-RETURNS flingapp.simple_user AS $$
-DECLARE 
-  result flingapp.simple_user;
-BEGIN
-  SELECT * INTO result
-  FROM flingapp.simple_user as su
-  WHERE su.user_acc_id = current_setting('jwt.claims.user_acc_id')::UUID;
+-- 3. check if a a value is null or just an empty string
+CREATE OR REPLACE FUNCTION flingapp_private.is_empty(TEXT) RETURNS bool AS $$
+  SELECT $1 ~ '^[[:space:]]*$'; 
+$$ LANGUAGE sql IMMUTABLE;
+COMMENT ON FUNCTION flingapp_private.is_empty(TEXT) IS 'Find empty strings or strings containing only whitespace';
 
-  RETURN result;
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
-COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified by our JWT.';
 
--- 3. Activate a user after with their activation tokens
-CREATE OR REPLACE FUNCTION flingapp.activate_user(
-  selector text,
-  verifier text
-) RETURNS flingapp.simple_user AS $$
-DECLARE
- account flingapp_private.user_account;
- result flingapp.simple_user;
-BEGIN
-  SELECT pa.* INTO account
-  FROM flingapp_private.user_account AS pa
-  WHERE selector = pa.user_email_confirm_token_selector;
 
-  IF account.user_email_confirm_token_verifier_hash = crypt(verifier, account.user_email_confirm_token_verifier_hash) 
-  THEN
-    UPDATE flingapp_private.user_account AS pa
-      SET user_email_confirmed = true
-      WHERE pa.user_acc_id = account.user_acc_id;
 
-    SELECT * INTO result
-    FROM flingapp.simple_user as su
-    WHERE account.user_acc_id = su.user_acc_id;
-
-    RETURN result;
-  ELSE
-    RETURN NULL;
-  END if;
-END;
-$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
-
--- ***** USER-RELATED CRUD *****
+-- ***** AUTH *****
 
 -- 1. REGISTER a user
-
--- need custom type first
--- return type for registration
-CREATE TYPE flingapp.registered_user as (
-  user_id UUID,
-  first_name TEXT,
-  last_name TEXT,
-  email TEXT,
-  account_selector TEXT,
-  account_verifier TEXT,
-  account_activated BOOLEAN
-);
-
--- then function
 CREATE OR REPLACE FUNCTION flingapp.usr_register_user(
   first_name text,
   last_name text,
@@ -1583,15 +1650,95 @@ $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.usr_register_user(text, text, text, text) IS 'Registers a single `User` and creates an account in flingapp.';
 
 
--- 2. UPDATE details about a user
 
--- needs custom type first
-CREATE TYPE flingapp.full_user_detail AS (
-  user_id UUID,
-  user_email TEXT,
-  user_first_name TEXT,
-  user_last_name TEXT
-);
+
+-- 2. Authenticate and return a JWT
+-- will only give user access if also confirmed email address.
+
+CREATE OR REPLACE FUNCTION flingapp.authenticate(
+  email text,
+  password text
+) RETURNS flingapp.jwt_token AS $$
+DECLARE
+  account flingapp_private.user_account;
+BEGIN
+  SELECT a.* into account
+  FROM flingapp_private.user_account AS a
+  WHERE a.user_email = email;
+
+  IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
+   RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
+  ELSIF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = true  then
+    RETURN ('flingapp_postgraphql', account.user_acc_id)::flingapp.jwt_token;
+  ELSE
+    RETURN null;
+  END if;
+END;
+$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
+
+
+
+
+-- 3. Get current user who is authenticated 
+CREATE OR REPLACE FUNCTION flingapp.this_user() 
+RETURNS flingapp.simple_user AS $$
+DECLARE 
+  role UUID;
+  result flingapp.simple_user;
+BEGIN
+  -- second paramter here is 'missing_ok' (not in documentation)
+  SELECT current_setting('jwt.claims.user_acc_id', true)::UUID INTO role;
+  IF role IS NULL THEN
+    RETURN NULL;
+  ELSE 
+    -- no need to qualify select statement as ``simple_user`` view selects based on UUID from claim;
+    SELECT * FROM flingapp.simple_user INTO result;
+    RETURN result;
+  END IF;
+
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified by our JWT.';
+
+
+
+
+-- 4. Activate a user after with their activation tokens
+CREATE OR REPLACE FUNCTION flingapp.activate_user(
+  selector text,
+  verifier text
+) RETURNS flingapp.simple_user AS $$
+DECLARE
+ account flingapp_private.user_account;
+ result flingapp.simple_user;
+BEGIN
+  SELECT pa.* INTO account
+  FROM flingapp_private.user_account AS pa
+  WHERE selector = pa.user_email_confirm_token_selector;
+
+  IF account.user_email_confirm_token_verifier_hash = crypt(verifier, account.user_email_confirm_token_verifier_hash) 
+  THEN
+    UPDATE flingapp_private.user_account AS ua
+      SET user_email_confirmed = true
+      WHERE ua.user_acc_id = account.user_acc_id;
+
+    SELECT * INTO result
+    FROM flingapp.simple_user as su
+    WHERE account.user_acc_id = su.user_acc_id;
+
+    RETURN result;
+  ELSE
+    RETURN NULL;
+  END if;
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
+
+
+
+
+-- ***** CUSTOM CRUD *****
 
 -- 2a. UPDATE BY ID
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_id(
@@ -1624,6 +1771,9 @@ END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) IS 'Updates a single `User` using the supplied UUID';
 
+
+
+
 -- 2b. UPDATE BY EMAIL
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_email(
   user_email_in TEXT,
@@ -1652,6 +1802,9 @@ END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) IS 'Updates a single `User` using the supplied email address';
 
+
+
+
 -- 3. delete a user
 CREATE OR REPLACE FUNCTION flingapp.usr_delete_user_by_id(
    user_id_in UUID
@@ -1672,31 +1825,50 @@ END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.usr_delete_user_by_id(UUID) IS 'Deletes a single `User` using the supplied UUID';
 
+
+
+
 -- ***** TRIGGERS *****
 CREATE TRIGGER user_acc_updated_at BEFORE UPDATE
   ON flingapp_private.user_account
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
+
+
+
+
 CREATE TRIGGER user_updated_at BEFORE UPDATE
   ON flingapp_custom.user
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+
+
 
 CREATE TRIGGER org_updated_at BEFORE UPDATE
   ON flingapp.organization
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
+
+
+
 CREATE TRIGGER fl_updated_at BEFORE UPDATE
   ON flingapp.freelancer
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
+
+
+
 CREATE TRIGGER fs_updated_at BEFORE UPDATE
   ON flingapp_private.file_store
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
+
+
 
 CREATE TRIGGER proj_updated_at BEFORE UPDATE
   ON flingapp.project
@@ -1704,76 +1876,137 @@ CREATE TRIGGER proj_updated_at BEFORE UPDATE
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
 
--- create privileges for each account
+
+
+-- **** Privileges
+
 -- SCHEMA GRANTS
 GRANT USAGE ON SCHEMA flingapp TO :flinganon, :flinguser;
 
+
+
+
 -- TABLE GRANTS
+
 -- 1. user_account: N/A - it's in the private schema
+
+
+
 
 -- 2. user: N/A - it's in the custom schema
 
+
+
+
 -- 3. organization
 GRANT SELECT ON TABLE flingapp.organization to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser ;
+GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser;
+
+
+
 
 -- 4. user_org_map
-GRANT SELECT ON TABLE flingapp.user_org_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.user_org_map to :flinguser ;
+-- GRANT SELECT ON TABLE flingapp.user_org_map to :flinguser;
+-- GRANT UPDATE, DELETE ON TABLE flingapp.user_org_map to :flinguser ;
+
+
+
 
 -- 5. freelancer
 GRANT SELECT ON TABLE flingapp.freelancer to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flinguser ;
 
+
+
+
 -- 6. freelancer_role
 GRANT SELECT ON TABLE flingapp.freelancer_role to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flinguser ;
+
+
+
 
 -- 7. freelancer_role_map
 GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flinguser ;
 
+
+
+
 -- 8. freelancer_language_map
 GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flinguser ;
+
+
+
 
 -- 9. freelancer_employment_status_map
 GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flinguser ;
 
+
+
+
 -- 10. freelancer_external_links_map
 GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flinguser ;
 
+
+
+
 -- 11. file_store: N/A - it's in private schema and postgraphql can't do file uploads
+
+
+
 
 -- 12. freelancer_file_store_map
 GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flinguser ;
 
+
+
+
 -- 13. project
 GRANT SELECT ON TABLE flingapp.project to  :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project to :flinguser ;
+
+
+
 
 -- 14. project_freelancer_map
 GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flinguser ;
 
+
+
+
 -- 15. project_file_store_map
 GRANT SELECT ON TABLE flingapp.project_file_store_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flinguser ;
+
+
+
 
 -- 16. project_role_map
 GRANT SELECT ON TABLE flingapp.project_role_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flinguser ;
 
+
+
+
 -- 17. work_item
 GRANT SELECT ON TABLE flingapp.work_item to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flinguser ;
 
+
+
+
 -- 18. project_work_item_map
 GRANT SELECT ON TABLE flingapp.project_work_item_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flinguser ;
+
+
+
 
 -- 19. work_history
 GRANT SELECT ON TABLE flingapp.work_history to :flinguser;
@@ -1783,51 +2016,82 @@ GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flinguser ;
 GRANT SELECT ON TABLE flingapp.work_history_file_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flinguser ;
 
+
+
+
 -- 21. text_note
 GRANT SELECT ON TABLE flingapp.text_note to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flinguser ;
+
+
+
 
 -- 22. freelancer_text_note_map
 GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flinguser ;
 
+
+
+
 -- 23. project_text_note_map
 GRANT SELECT ON TABLE flingapp.project_text_note_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
+
+
+
 
 -- 24. work_history_text_note_map
 GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
 
+
+
+
 -- 25. fl_org_map
-GRANT SELECT ON TABLE flingapp.fl_org_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.fl_org_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_org_map to :flinguser;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flinguser;
+
+
 
 
 -- VIEW GRANTS
+
 -- 1. simple_user
 GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
 GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flinguser;
 
+
+
+
 -- FUNCTION GRANTS
 
 GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flinguser, :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flinguser, :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon, :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinganon, :flinguser;
-GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon;
+GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinguser;
+GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser, :flingpgql;
+
+
+
 
 -- RLS settings
 ALTER TABLE flingapp_custom.user ENABLE row level security;
-CREATE POLICY select_user ON flingapp_custom.user FOR SELECT TO :flinguser
+CREATE POLICY select_user ON flingapp_custom.user FOR SELECT TO :flinguser, :flingpgql
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE TO :flinguser
+CREATE POLICY update_user ON flingapp_custom.user FOR UPDATE TO :flinguser, :flingpgql
   USING (user_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
+
+
+
 ALTER TABLE flingapp_private.user_account ENABLE row level security;
-CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flinguser
+CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flinguser, :flingpgql
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser
+CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser, :flingpgql
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
+
+begin;
+
+
