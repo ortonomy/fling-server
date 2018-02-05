@@ -965,7 +965,7 @@ CREATE TABLE flingapp_custom.user(
   user_id UUID NOT NULL,
   user_first_name TEXT NOT NULL,
   user_last_name TEXT NOT NULL,
-  user_org UUID,
+  user_org UUID DEFAULT NULL,
   user_type flingapp.user_type NOT NULL DEFAULT 'USER',
   created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT timezone('utc'::text, now()),
