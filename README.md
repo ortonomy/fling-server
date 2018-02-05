@@ -4,19 +4,24 @@
 
 # flingapp-backend
 
-Fling-server is a node.js & postgraphql backend for a flingapp front-end -- available [here](https://github.com/ortonomy/flingapp-frontend)
+Fling-server is an express app running on node.js & postgraphql backend for a flingapp front-end -- available [here](https://github.com/ortonomy/flingapp-frontend)
 
-For now, only the postgraphql schema is ready for development purposes.
+For now, this server is only suitable for *DEVELOPMENT* purposes. Do not use in production!
 
-Run 
+## Run development server. Server runs on port ``3001``
 
 ````
 psql -f design/db/setup.sql
 psql -f design/db/seed-data-fixtures.sql
 npm install
-npm run dev
+npm start
 ````
 
 to get the schema imported, import test data fixtures and run the postgraphql server. 
 
-N.B. You'll need to open a port on your server firewall ``5000`` using ``ufw`` or similar.
+N.B. You'll need to open a port on your server firewall ``3001`` using ``ufw`` or put the server behind a reverse proxy.
+
+## API endpoints
+
+``/graphql`` for all graphql queries
+``/register`` will send an email with registration details if the graphql mutation ``userRegisterUser`` is sent in body of a request. You'll need the .env file for this with SparkPost API key.
