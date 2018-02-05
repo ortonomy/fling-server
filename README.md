@@ -26,5 +26,6 @@ N.B. You'll need to open a port on your server firewall ``3001`` using ``ufw`` o
 ``/graphql`` for all graphql queries
 ``/register`` will send an email with registration details if the graphql mutation ``userRegisterUser`` is sent in body of a request. You'll need the .env file for this with SparkPost API key.
 
-## This GIT repository
+## This repository
+
 The master branch is protected and the default branch is set to ``development``. 
