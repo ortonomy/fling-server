@@ -42,7 +42,6 @@ typings/
 
 # NPM
 .npm
-package-lock.json
 
 # Optional eslint cache
 .eslintcache
@@ -55,7 +54,6 @@ package-lock.json
 
 # Yarn
 .yarn-integrity
-.yarn.lock
 
 # dotenv environment variables file
 .env

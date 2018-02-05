@@ -15,21 +15,27 @@ SET ROLE :flingadmin;
 DO $$
 DECLARE  
    user1 flingapp.registered_user;
-   org1 uuid;
+   org1 UUID;
    freelancer1 flingapp.freelancer;
    freelancer2 flingapp.freelancer;
    freelancer3 flingapp.freelancer;
    role1 flingapp.freelancer_role;
    role2 flingapp.freelancer_role;
    role3 flingapp.freelancer_role;
+   jwtRole TEXT;
+   jwtUser UUID;
 BEGIN  
   -- register a user
   SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='testing@ortonomy.co', password:='12345678');
   RAISE NOTICE 'New user is: %', user1;
   RAISE NOTICE 'New user ID: % ', user1.user_id;
   
+  -- set role to be able 
+  PERFORM set_config('jwt.claims.role', 'flingapp_postgraphql', true);
+  PERFORM set_config('jwt.claims.user_acc_id', user1.user_id::TEXT, true);
 
-
+  -- activate the user immediately
+  PERFORM flingapp.activate_user( user1.account_selector, user1.account_verifier);
 
   -- create a new organization
   INSERT INTO flingapp.organization(
@@ -38,7 +44,7 @@ BEGIN
     org_domain
   )
   VALUES (
-    'ORTONOMY',
+    'Ortonomy Labs',
     user1.user_id,
     'ortonomy.co'
   )
