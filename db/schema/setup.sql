@@ -1667,7 +1667,7 @@ BEGIN
   WHERE a.user_email = email;
 
   IF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = false then
-   RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
+    RETURN ('flingapp_user', account.user_acc_id)::flingapp.jwt_token;
   ELSIF account.user_password_hash = crypt(password, account.user_password_hash) AND account.user_email_confirmed = true  then
     RETURN ('flingapp_postgraphql', account.user_acc_id)::flingapp.jwt_token;
   ELSE
@@ -1708,29 +1708,29 @@ COMMENT ON FUNCTION  flingapp.this_user() is 'Gets the person who was identified
 CREATE OR REPLACE FUNCTION flingapp.activate_user(
   selector text,
   verifier text
-) RETURNS flingapp.simple_user AS $$
+) RETURNS flingapp.jwt_token AS $$
 DECLARE
  account flingapp_private.user_account;
- result flingapp.simple_user;
 BEGIN
   SELECT pa.* INTO account
   FROM flingapp_private.user_account AS pa
   WHERE selector = pa.user_email_confirm_token_selector;
 
-  IF account.user_email_confirm_token_verifier_hash = crypt(verifier, account.user_email_confirm_token_verifier_hash) 
-  THEN
-    UPDATE flingapp_private.user_account AS ua
-      SET user_email_confirmed = true
-      WHERE ua.user_acc_id = account.user_acc_id;
+  IF FOUND THEN 
+    IF account.user_email_confirm_token_verifier_hash = crypt(verifier, account.user_email_confirm_token_verifier_hash) 
+      THEN
+        UPDATE flingapp_private.user_account AS ua
+          SET user_email_confirmed = true
+          WHERE ua.user_acc_id = account.user_acc_id;
 
-    SELECT * INTO result
-    FROM flingapp.simple_user as su
-    WHERE account.user_acc_id = su.user_acc_id;
-
-    RETURN result;
+        RETURN ('flingapp_postgraphql', account.user_acc_id)::flingapp.jwt_token;
+    ELSE 
+      RETURN NULL;
+    END IF;
   ELSE
-    RETURN NULL;
-  END if;
+    RETURN NULL; 
+  END IF;
+
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
