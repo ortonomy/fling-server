@@ -40,13 +40,11 @@ BEGIN
   -- create a new organization
   INSERT INTO flingapp.organization(
     org_name,
-    org_admin,
-    org_domain
+    org_admin
   )
   VALUES (
     'Ortonomy Labs',
-    user1.user_id,
-    'ortonomy.co'
+    user1.user_id
   )
   RETURNING org_id INTO org1;
   RAISE NOTICE 'New org ID is: %', org1;
