@@ -1736,6 +1736,11 @@ $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
 
 
+-- ***** ORG Functions *****
+
+-- insert org functions here
+
+
 
 
 -- ***** CUSTOM CRUD *****
