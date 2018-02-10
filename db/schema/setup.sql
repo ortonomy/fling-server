@@ -990,7 +990,7 @@ CREATE TABLE flingapp.organization(
   org_id UUID NOT NULL DEFAULT gen_random_uuid(),
   org_name TEXT NOT NULL,
   org_admin UUID NOT NULL,
-  org_domain TEXT NOT NULL,
+  org_domain TEXT DEFAULT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   -- keys
