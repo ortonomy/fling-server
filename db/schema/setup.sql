@@ -1451,10 +1451,10 @@ CREATE TABLE flingapp.project_text_note_map(
   proj_note_map_text_note UUID NOT NULL,
   CONSTRAINT project_text_note_map_pkey PRIMARY KEY (proj_note_map_project, proj_note_map_text_note),
   CONSTRAINT project_text_note_map_project_fkey FOREIGN KEY (proj_note_map_project)
-    REFERENCES flingapp.freelancer (fl_id)
+    REFERENCES flingapp.project (proj_id) MATCH SIMPLE
     ON DELETE RESTRICT,
   CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (proj_note_map_text_note)
-    REFERENCES flingapp.text_note (txt_note_id)
+    REFERENCES flingapp.text_note (txt_note_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
@@ -1474,10 +1474,10 @@ CREATE TABLE flingapp.work_history_text_note_map(
   wh_note_map_text_note UUID NOT NULL,
   CONSTRAINT work_history_text_note_map_pkey PRIMARY KEY (wh_note_map_work_history, wh_note_map_text_note),
   CONSTRAINT work_history_text_note_map_work_history_fkey FOREIGN KEY (wh_note_map_work_history)
-    REFERENCES flingapp.work_history (wh_id)
+    REFERENCES flingapp.work_history (wh_id) MATCH SIMPLE
     ON DELETE RESTRICT,
   CONSTRAINT work_history_text_note_map_text_note_fkey FOREIGN KEY (wh_note_map_text_note)
-    REFERENCES flingapp.text_note (txt_note_id)
+    REFERENCES flingapp.text_note (txt_note_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
@@ -1904,8 +1904,8 @@ GRANT USAGE ON SCHEMA flingapp TO :flinganon, :flinguser;
 
 
 -- 3. organization
-GRANT SELECT ON TABLE flingapp.organization to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser;
+GRANT SELECT ON TABLE flingapp.organization to :flingpgql;
+GRANT INSERT, UPDATE, DELETE ON TABLE flingapp.organization to :flingpgql;
 
 
 
@@ -1918,43 +1918,43 @@ GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser;
 
 
 -- 5. freelancer
-GRANT SELECT ON TABLE flingapp.freelancer to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flingpgql;
 
 
 
 
 -- 6. freelancer_role
-GRANT SELECT ON TABLE flingapp.freelancer_role to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_role to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flingpgql ;
 
 
 
 
 -- 7. freelancer_role_map
-GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flingpgql ;
 
 
 
 
 -- 8. freelancer_language_map
-GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flingpgql ;
 
 
 
 
 -- 9. freelancer_employment_status_map
-GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flingpgql ;
 
 
 
 
 -- 10. freelancer_external_links_map
-GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flingpgql ;
 
 
 
@@ -1965,96 +1965,96 @@ GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flingus
 
 
 -- 12. freelancer_file_store_map
-GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flingpgql;
 
 
 
 
 -- 13. project
-GRANT SELECT ON TABLE flingapp.project to  :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project to  :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project to :flingpgql ;
 
 
 
 
 -- 14. project_freelancer_map
-GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flingpgql ;
 
 
 
 
 -- 15. project_file_store_map
-GRANT SELECT ON TABLE flingapp.project_file_store_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_file_store_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flingpgql ;
 
 
 
 
 -- 16. project_role_map
-GRANT SELECT ON TABLE flingapp.project_role_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_role_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flingpgql ;
 
 
 
 
 -- 17. work_item
-GRANT SELECT ON TABLE flingapp.work_item to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_item to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flingpgql ;
 
 
 
 
 -- 18. project_work_item_map
-GRANT SELECT ON TABLE flingapp.project_work_item_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_work_item_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flingpgql ;
 
 
 
 
 -- 19. work_history
-GRANT SELECT ON TABLE flingapp.work_history to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flingpgql ;
 
 -- 20. work_history_file_map
-GRANT SELECT ON TABLE flingapp.work_history_file_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history_file_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flingpgql ;
 
 
 
 
 -- 21. text_note
-GRANT SELECT ON TABLE flingapp.text_note to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flinguser ;
+GRANT SELECT ON TABLE flingapp.text_note to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flingpgql ;
 
 
 
 
 -- 22. freelancer_text_note_map
-GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flingpgql ;
 
 
 
 
 -- 23. project_text_note_map
-GRANT SELECT ON TABLE flingapp.project_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flingpgql ;
 
 
 
 
 -- 24. work_history_text_note_map
-GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flingpgql ;
 
 
 
 
 -- 25. fl_org_map
-GRANT SELECT ON TABLE flingapp.freelancer_org_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flinguser;
+GRANT SELECT ON TABLE flingapp.freelancer_org_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flingpgql;
 
 
 
@@ -2062,8 +2062,8 @@ GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flinguser;
 -- VIEW GRANTS
 
 -- 1. simple_user
-GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flinguser;
+GRANT SELECT ON TABLE flingapp.simple_user to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flingpgql;
 
 
 
@@ -2096,6 +2096,14 @@ CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flingu
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser, :flingpgql
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
+
+ALTER TABLE flingapp.organization ENABLE row level security;
+CREATE POLICY insert_org ON flingapp.organization FOR INSERT TO :flingpgql
+  WITH CHECK (org_admin = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY select_org ON flingapp.organization FOR SELECT TO :flingpgql
+  USING (org_admin = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY update_org ON flingapp.organization FOR UPDATE TO :flingpgql
+  USING (org_admin = current_setting('jwt.claims.user_acc_id')::uuid); 
 
 begin;
 

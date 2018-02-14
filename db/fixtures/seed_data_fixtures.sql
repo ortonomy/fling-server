@@ -15,6 +15,7 @@ SET ROLE :flingadmin;
 DO $$
 DECLARE  
    user1 flingapp.registered_user;
+   user2 flingapp.registered_user;
    org1 UUID;
    freelancer1 flingapp.freelancer;
    freelancer2 flingapp.freelancer;
@@ -25,19 +26,19 @@ DECLARE
    jwtRole TEXT;
    jwtUser UUID;
 BEGIN  
-  -- register a user
-  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='testing@ortonomy.co', password:='12345678');
+  -- register a single user for full permissions
+  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='test@ortonomy.co', password:='12345678');
   RAISE NOTICE 'New user is: %', user1;
   RAISE NOTICE 'New user ID: % ', user1.user_id;
   
-  -- set role to be able 
+  -- set role to be able to execute
   PERFORM set_config('jwt.claims.role', 'flingapp_postgraphql', true);
   PERFORM set_config('jwt.claims.user_acc_id', user1.user_id::TEXT, true);
 
   -- activate the user immediately
   PERFORM flingapp.activate_user( user1.account_selector, user1.account_verifier);
 
-  -- create a new organization
+  -- create a new organization with the user as the owner
   INSERT INTO flingapp.organization(
     org_name,
     org_admin
@@ -51,7 +52,7 @@ BEGIN
 
 
 
-
+  -- add this org to the user
   UPDATE flingapp_custom.user
   SET 
     user_org = org1
@@ -220,6 +221,14 @@ BEGIN
     org1,
     freelancer3.fl_id
   );
+
+  -- create a new user for org creation testing
+  SELECT * INTO user2 FROM flingapp.usr_register_user(first_name:='Org',last_name:= 'Creator', email:='test2@ortonomy.co', password:='12345678');
+  RAISE NOTICE 'New user for orgcreation is: %', user2;
+  RAISE NOTICE 'New user ID for orgcreation: % ', user2.user_id;
+
+  -- activate this new user
+  PERFORM flingapp.activate_user( user2.account_selector, user2.account_verifier);
 
 END $$;
 
