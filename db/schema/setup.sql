@@ -1511,6 +1511,30 @@ COMMENT ON COLUMN flingapp.freelancer_org_map.freelancer_org_map_freelancer IS '
 
 
 
+-- 26. record access requests to organizations
+CREATE TABLE flingapp_private.org_access_request(
+  access_req_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL,
+  requestor_id UUID NOT NULL,
+  request_selector TEXT NOT NULL,
+  request_validator_hash TEXT NOT NULL,
+  request_confirmed BOOLEAN DEFAULT FALSE,
+  CONSTRAINT org_access_request_pkey PRIMARY KEY (access_req_id),
+  CONSTRAINT org_access_request_key UNIQUE (org_id, requestor_id),
+  CONSTRAINT org_access_request_requestor_fkey FOREIGN KEY (requestor_id)
+    REFERENCES flingapp_private.user_account (user_acc_id) MATCH SIMPLE,
+  CONSTRAINT org_access_request_org_fkey FOREIGN KEY (org_id)
+    REFERENCES flingapp.organization (org_id) MATCH SIMPLE
+);
+-- comments for the org_access_request table
+COMMENT ON TABLE flingapp_private.org_access_request IS 'A request to join an organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.access_req_id IS 'The universally unique ID of a single `Access Request` to an organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.org_id IS 'The universally unique ID of the organization being the request is for.';
+COMMENT ON COLUMN flingapp_private.org_access_request.requestor_id IS 'The universally unique ID of a single ``User`` requesting access to the organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_selector IS 'The selector used to find the request when validating.';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_validator_hash IS 'The verifier has verifying the lookup of the request.';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_confirmed IS 'An indication of whether the request has been fulfilled.';
+
 
 -- ***** VIEWS ***** 
 -- create any necessary views across different schemas where we need a single or all select function
@@ -1576,6 +1600,18 @@ CREATE TYPE flingapp.full_user_detail AS (
   user_last_name TEXT
 );
 
+
+-- return type for org request_access_to_org
+CREATE TYPE flingapp.access_request AS (
+  req_id UUID,
+  org_id UUID,
+  admin_id UUID,
+  admin_email TEXT,
+  requestor_id UUID,
+  selector TEXT,
+  verifier TEXT,
+  request_status BOOLEAN
+);
 
 
 
@@ -1739,6 +1775,91 @@ COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifie
 -- ***** ORG Functions *****
 
 -- insert org functions here
+
+--1. requests access to organization and returns the request with selector and verifier information
+CREATE OR REPLACE FUNCTION flingapp.request_access_to_org(
+  org_id UUID,
+  requestor_id UUID
+) RETURNS flingapp.access_request AS $$
+DECLARE
+  selector TEXT;
+  verifier TEXT;
+  admin flingapp.simple_user;
+  org flingapp.organization;
+  upsert_result flingapp_private.org_access_request;
+  result flingapp.access_request;
+BEGIN
+
+  SELECT flingapp_private.random_string(15) INTO selector;
+  SELECT flingapp_private.random_string(18) INTO verifier;
+
+  SELECT * INTO org
+  FROM flingapp.organization
+  WHERE $1 = flingapp.organization.org_id; 
+
+  SELECT * INTO admin
+  FROM flingapp.simple_user 
+  WHERE  user_id = org.org_admin;
+
+  INSERT INTO flingapp_private.org_access_request (org_id, requestor_id, request_selector, request_validator_hash) 
+    VALUES (
+      $1,
+      $2,
+      selector,
+      crypt(verifier, gen_salt('bf', 8))
+    )
+    ON CONFLICT (org_access_request_key) DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE requestor_id = $2
+    RETURNING * INTO upsert_result;
+
+  RETURN (upsert_result.access_req_id, $1, admin.user_acc_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.request_access_to_org(UUID, UUID) IS 'Registers a request for access to an organizatin by another user and returns the values needed for the validation email';
+
+
+
+
+--2. validates a request to access an organization
+CREATE OR REPLACE FUNCTION flingapp.validate_org_access(
+  selector TEXT,
+  verifier TEXT
+) RETURNS flingapp.simple_user AS $$
+DECLARE
+  user flingapp.simple_user;
+  request  flingapp_private.org_access_request;
+BEGIN
+  SELECT * INTO request
+  FROM flingapp_private.org_access_request
+  WHERE request_selector = $1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  IF request.request_validator_hash = crypt(verifier, request.request_validator_hash) THEN
+    UPDATE flingapp_private.org_access_request
+    SET
+      request_confirmed = TRUE
+    WHERE access_req_id = request.access_req_id;
+
+    UPDATE flingapp.simple_user
+    SET 
+      user_org = request.org_id
+    WHERE user_acc_id = request.requestor_id;
+
+    SELECT * INTO user
+    FROM flingapp.simple_user
+    WHERE user_acc_id = request.requestor_id;
+
+    RETURN user;
+  ELSE 
+    RETURN NULL;
+  END IF;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) IS 'Validates a request to access an organization and adds the organization to the user if successful';
 
 
 
