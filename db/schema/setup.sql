@@ -1811,7 +1811,7 @@ BEGIN
     ON CONFLICT (org_access_request_key) DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE requestor_id = $2
     RETURNING * INTO upsert_result;
 
-  RETURN (upsert_result.access_req_id, $1, admin.user_acc_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
+  RETURN (upsert_result.access_req_id, $1, admin.user_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
@@ -1843,7 +1843,7 @@ BEGIN
       request_confirmed = TRUE
     WHERE access_req_id = request.access_req_id;
 
-    UPDATE flingapp.simple_user
+    UPDATE flingapp_custom.user
     SET 
       user_org = request.org_id
     WHERE user_acc_id = request.requestor_id;
@@ -1875,13 +1875,14 @@ CREATE OR REPLACE FUNCTION flingapp.update_user_by_id(
   user_org_in UUID
 ) RETURNS flingapp.simple_user AS $$
 DECLARE 
+  exists flingapp.simple_user;
   record flingapp.simple_user;
 BEGIN
   
-  -- get our record to update
-  SELECT * INTO record
-  FROM flingapp.simple_user
-  WHERE user_acc_id = $1;
+  -- check if user exists
+  SELECT * INTO exists
+  FROM flingapp_custom.user as u
+  WHERE u.user_acc_id = $1;
 
   -- return null if not found
   IF NOT FOUND THEN 
@@ -1889,13 +1890,22 @@ BEGIN
   END IF;
 
   -- do updates
-  UPDATE flingapp.simple_user
-  SET
-    user_email = $2,
-    user_first_name = $3,
-    user_last_name = $4,
-    user_org = $5
+  UPDATE flingapp_private.user_account
+    SET
+      user_email = $2
   WHERE user_acc_id = $1;
+
+  UPDATE flingapp_custom.user
+    SET
+      user_first_name = $3,
+      user_last_name = $4,
+      user_org = $5
+  WHERE user_id = $1;
+
+  -- get updated row
+  SELECT * INTO record
+  FROM fingapp.simple_user
+  WHERE user_id = $1;
 
   RETURN record;
 
