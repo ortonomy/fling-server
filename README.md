@@ -11,7 +11,7 @@ For now, this server is only suitable for *DEVELOPMENT* purposes. Do not use in 
 ## Run development server with test data 
 
 ````
-psql -f design/db/setup.sql
+psql -f db/schema/setup.sql -1 -v ON_ERROR_STOP=1
 psql -f design/db/seed-data-fixtures.sql
 npm install
 npm start
