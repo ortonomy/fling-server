@@ -1710,7 +1710,7 @@ BEGIN
     RETURN null;
   END if;
 END;
-$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
 
 
@@ -1867,8 +1867,8 @@ COMMENT ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) IS 'Validates a req
 -- ***** CUSTOM CRUD *****
 
 -- 2a. UPDATE BY ID
-CREATE OR REPLACE FUNCTION flingapp.update_user_by_id(
-  user_id UUID,
+CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_id(
+  user_id_in UUID,
   user_email_in TEXT,
   user_first_name_in TEXT,
   user_last_name_in TEXT,
@@ -1876,12 +1876,13 @@ CREATE OR REPLACE FUNCTION flingapp.update_user_by_id(
 ) RETURNS flingapp.simple_user AS $$
 DECLARE 
   exists flingapp.simple_user;
-  record flingapp.simple_user;
+  partial1 flingapp_private.user_account;
+  partial2 flingapp_custom.user;
 BEGIN
   
   -- check if user exists
   SELECT * INTO exists
-  FROM flingapp_custom.user as u
+  FROM flingapp.simple_user as u
   WHERE u.user_acc_id = $1;
 
   -- return null if not found
@@ -1889,29 +1890,28 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  -- do updates
-  UPDATE flingapp_private.user_account
+  -- update hidden account details
+  UPDATE flingapp_private.user_account as pu
     SET
-      user_email = $2
-  WHERE user_acc_id = $1;
+      user_email = user_email_in
+    WHERE pu.user_acc_id = user_id_in
+    RETURNING * INTO partial1;
 
-  UPDATE flingapp_custom.user
+  -- update standard user details
+  UPDATE flingapp_custom.user as cu
     SET
-      user_first_name = $3,
-      user_last_name = $4,
-      user_org = $5
-  WHERE user_id = $1;
+      user_first_name = user_first_name_in,
+      user_last_name = user_last_name_in,
+      user_org = user_org_in
+    WHERE cu.user_id = user_id_in
+    RETURNING * INTO partial2;
 
-  -- get updated row
-  SELECT * INTO record
-  FROM fingapp.simple_user
-  WHERE user_id = $1;
-
-  RETURN record;
+  -- returning updated records
+  RETURN (partial1.user_acc_id, partial1.user_email, partial1.user_email_confirmed, partial1.user_password_reset_requested, partial2.user_first_name, partial2.user_last_name, partial2.user_org)::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.update_user_by_id(UUID, text, text, text, UUID) IS 'Updates a single `User` using the supplied UUID';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID) IS 'Updates a single `User` using the supplied UUID';
 
 
 
@@ -2208,7 +2208,7 @@ GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flingpgql;
 -- FUNCTION GRANTS
 
 GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
-GRANT EXECUTE ON FUNCTION flingapp.update_user_by_id(UUID, text, text, text, UUID) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon;
