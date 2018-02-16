@@ -1920,29 +1920,37 @@ COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID)
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_email(
   user_email_in TEXT,
   user_first_name_in TEXT,
-  user_last_name_in TEXT
-) RETURNS flingapp.full_user_detail AS $$
+  user_last_name_in TEXT,
+  user_org_in UUID
+) RETURNS flingapp.simple_user AS $$
 DECLARE 
-  u_id UUID;
-  result flingapp.full_user_detail;
+  exists flingapp.simple_user;
+  partial flingapp_custom.user;
 BEGIN
-  SELECT user_acc_id FROM flingapp_private.user_account WHERE user_email = user_email_in INTO u_id;
 
-  UPDATE flingapp_custom.user
-  SET
-    user_first_name = $2,
-    user_last_name = $3
-  WHERE user_id = u_id;
+  -- check if uer exists
+  SELECT * INTO exists
+  FROM flingapp.simple_user as u
+  WHERE u.user_email = $1;
 
-  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name INTO result
-  FROM flingapp_private.user_account acc, flingapp_custom.user u
-  WHERE acc.user_acc_id = u_id AND acc.user_acc_id = u.user_id;
+  -- reject if not found
+  IF NOT FOUND THEN 
+    RETURN NULL;
+  END IF;
 
-  RETURN result; 
+  UPDATE flingapp_custom.user as cu
+    SET
+      user_first_name = $2,
+      user_last_name = $3,
+      user_org = $4
+    WHERE cu.user_id = exists.user_acc_id
+  RETURNING * INTO partial;
+
+  RETURN (exists.user_acc_id, exists.user_email, exists.user_email_confirmed, exists.user_password_reset_requested, partial.user_first_name, partial.user_last_name, partial.user_org)::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) IS 'Updates a single `User` using the supplied email address';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, UUID) IS 'Updates a single `User` using the supplied email address';
 
 
 
@@ -2209,7 +2217,7 @@ GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flingpgql;
 
 GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
 GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID) to :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon;
 GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinguser;
