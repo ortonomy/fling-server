@@ -1548,6 +1548,11 @@ CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS
 
 
 
+-- 2. view over org access request to remove the need to expose selector and verifier information
+CREATE OR REPLACE VIEW flingapp.simple_access_request AS 
+  SELECT oaq.org_id, oaq.requestor_id, oaq.request_confirmed
+  FROM flingapp_private.org_access_request oaq;
+
 
 -- ***** IN SCRIPT REQUIREMENTS *****
 -- make sure we've reset permissions / cleared the white list to execute functions
@@ -1798,20 +1803,20 @@ BEGIN
   WHERE $1 = flingapp.organization.org_id; 
 
   SELECT * INTO admin
-  FROM flingapp.simple_user 
-  WHERE  user_id = org.org_admin;
+  FROM flingapp.simple_user AS su
+  WHERE  su.user_acc_id = org.org_admin;
 
-  INSERT INTO flingapp_private.org_access_request (org_id, requestor_id, request_selector, request_validator_hash) 
+  INSERT INTO flingapp_private.org_access_request as oaq (org_id, requestor_id, request_selector, request_validator_hash) 
     VALUES (
       $1,
       $2,
       selector,
       crypt(verifier, gen_salt('bf', 8))
     )
-    ON CONFLICT (org_access_request_key) DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE requestor_id = $2
+    ON CONFLICT ON CONSTRAINT org_access_request_key DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE oaq.requestor_id = $2
     RETURNING * INTO upsert_result;
 
-  RETURN (upsert_result.access_req_id, $1, admin.user_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
+  RETURN (upsert_result.access_req_id, $1, admin.user_acc_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
@@ -1824,9 +1829,9 @@ COMMENT ON FUNCTION flingapp.request_access_to_org(UUID, UUID) IS 'Registers a r
 CREATE OR REPLACE FUNCTION flingapp.validate_org_access(
   selector TEXT,
   verifier TEXT
-) RETURNS flingapp.simple_user AS $$
+) RETURNS flingapp.simple_access_request AS $$
 DECLARE
-  user flingapp.simple_user;
+  result flingapp.simple_access_request;
   request  flingapp_private.org_access_request;
 BEGIN
   SELECT * INTO request
@@ -1837,22 +1842,22 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  IF request.request_validator_hash = crypt(verifier, request.request_validator_hash) THEN
-    UPDATE flingapp_private.org_access_request
+  IF request.request_validator_hash = crypt(verifier, request.request_validator_hash) AND NOT request.request_confirmed THEN
+    UPDATE flingapp_private.org_access_request as oaq
     SET
       request_confirmed = TRUE
-    WHERE access_req_id = request.access_req_id;
+    WHERE oaq.access_req_id = request.access_req_id;
 
-    UPDATE flingapp_custom.user
+    UPDATE flingapp_custom.user AS cu
     SET 
       user_org = request.org_id
-    WHERE user_acc_id = request.requestor_id;
+    WHERE cu.user_id = request.requestor_id;
 
-    SELECT * INTO user
-    FROM flingapp.simple_user
-    WHERE user_acc_id = request.requestor_id;
+    SELECT * INTO result 
+    FROM flingapp.simple_access_request as sar
+    WHERE sar.requestor_id = request.requestor_id;
 
-    RETURN user;
+    RETURN result;
   ELSE 
     RETURN NULL;
   END IF;
@@ -2222,8 +2227,8 @@ GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon;
 GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser, :flingpgql;
-
-
+GRANT EXECUTE ON FUNCTION flingapp.request_access_to_org(UUID, UUID) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) to :flingpgql;
 
 
 -- RLS settings
@@ -2242,13 +2247,16 @@ CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flingu
 CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser, :flingpgql
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 
+
+
+
 ALTER TABLE flingapp.organization ENABLE row level security;
 CREATE POLICY insert_org ON flingapp.organization FOR INSERT TO :flingpgql
   WITH CHECK (org_admin = current_setting('jwt.claims.user_acc_id')::uuid);
-CREATE POLICY select_org ON flingapp.organization FOR SELECT TO :flingpgql
-  USING (org_admin = current_setting('jwt.claims.user_acc_id')::uuid);
 CREATE POLICY update_org ON flingapp.organization FOR UPDATE TO :flingpgql
   USING (org_admin = current_setting('jwt.claims.user_acc_id')::uuid); 
+CREATE POLICY select_org ON flingapp.organization FOR SELECT TO :flingpgql
+  USING (true);
 
 begin;
 
