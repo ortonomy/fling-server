@@ -1792,10 +1792,9 @@ CREATE OR REPLACE FUNCTION flingapp.request_access_to_org(
 DECLARE
   selector TEXT;
   verifier TEXT;
-  admin flingapp.simple_user;
+  admin flingapp_private.user_account;
   org flingapp.organization;
   upsert_result flingapp_private.org_access_request;
-  result flingapp.access_request;
 BEGIN
 
   SELECT flingapp_private.random_string(15) INTO selector;
@@ -1805,9 +1804,9 @@ BEGIN
   FROM flingapp.organization
   WHERE $1 = flingapp.organization.org_id; 
 
-  SELECT * INTO admin
-  FROM flingapp.simple_user AS su
-  WHERE  su.user_acc_id = org.org_admin;
+  SELECT a.* INTO admin
+  FROM flingapp_private.user_account AS a
+  WHERE  a.user_acc_id = org.org_admin;
 
   INSERT INTO flingapp_private.org_access_request as oaq (org_id, requestor_id, request_selector, request_validator_hash) 
     VALUES (
