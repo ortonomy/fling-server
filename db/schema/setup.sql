@@ -1544,7 +1544,7 @@ CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS
   SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_org
   FROM flingapp_private.user_account u_acc, flingapp_custom.user u
   WHERE u_acc.user_acc_id = u.user_id AND u.user_id = current_setting('jwt.claims.user_acc_id')::uuid;
-
+COMMENT ON VIEW flingapp.simple_user IS 'A view over hidden user tables protected by RLS, so returns only a single `User`. Removes sensitive data from query results.';
 
 
 
@@ -1552,6 +1552,9 @@ CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS
 CREATE OR REPLACE VIEW flingapp.simple_access_request AS 
   SELECT oaq.org_id, oaq.requestor_id, oaq.request_confirmed
   FROM flingapp_private.org_access_request oaq;
+COMMENT ON VIEW flingapp.simple_access_request IS 'A view over hidden table for org access requests. Removes sensitive data from query results.';
+
+
 
 
 -- ***** IN SCRIPT REQUIREMENTS *****
