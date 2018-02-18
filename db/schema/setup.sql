@@ -1613,13 +1613,19 @@ CREATE TYPE flingapp.full_user_detail AS (
 CREATE TYPE flingapp.access_request AS (
   req_id UUID,
   org_id UUID,
+  requestor_id UUID,
+  requestor_first_name TEXT,
+  requestor_last_name TEXT,
+  org_name TEXT,
   admin_id UUID,
   admin_email TEXT,
-  requestor_id UUID,
+  admin_first_name TEXT,
+  admin_last_name TEXT,
   selector TEXT,
   verifier TEXT,
   request_status BOOLEAN
 );
+
 
 
 
@@ -1792,7 +1798,8 @@ CREATE OR REPLACE FUNCTION flingapp.request_access_to_org(
 DECLARE
   selector TEXT;
   verifier TEXT;
-  admin flingapp_private.user_account;
+  requestor flingapp.full_user_detail;
+  admin flingapp.full_user_detail ;
   org flingapp.organization;
   upsert_result flingapp_private.org_access_request;
 BEGIN
@@ -1804,9 +1811,27 @@ BEGIN
   FROM flingapp.organization
   WHERE $1 = flingapp.organization.org_id; 
 
-  SELECT a.* INTO admin
-  FROM flingapp_private.user_account AS a
-  WHERE  a.user_acc_id = org.org_admin;
+  SELECT
+  user_id,
+  user_email,
+  user_first_name,
+  user_last_name INTO admin
+  FROM
+    flingapp_custom.user AS cu
+    INNER JOIN flingapp_private.user_account AS pu ON pu.user_acc_id = cu.user_id
+  WHERE 
+    cu.user_id = org.org_admin;
+
+  SELECT
+  user_id,
+  user_email,
+  user_first_name,
+  user_last_name INTO requestor
+  FROM 
+    flingapp_custom.user AS cu
+    INNER JOIN flingapp_private.user_account AS pu ON pu.user_acc_id = cu.user_id
+  WHERE
+    cu.user_id = requestor_id;
 
   INSERT INTO flingapp_private.org_access_request as oaq (org_id, requestor_id, request_selector, request_validator_hash) 
     VALUES (
@@ -1818,7 +1843,21 @@ BEGIN
     ON CONFLICT ON CONSTRAINT org_access_request_key DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE oaq.requestor_id = $2
     RETURNING * INTO upsert_result;
 
-  RETURN (upsert_result.access_req_id, $1, admin.user_acc_id, admin.user_email, $2, selector, verifier, FALSE)::flingapp.access_request;
+  RETURN (
+    upsert_result.access_req_id, 
+    org.org_id, 
+    requestor.user_id,
+    requestor.user_first_name,
+    requestor.user_last_name,
+    org.org_name, 
+    admin.user_id, 
+    admin.user_email, 
+    admin.user_first_name, 
+    admin.user_last_name, 
+    selector, 
+    verifier, 
+    FALSE
+  )::flingapp.access_request;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
@@ -1914,7 +1953,15 @@ BEGIN
     RETURNING * INTO partial2;
 
   -- returning updated records
-  RETURN (partial1.user_acc_id, partial1.user_email, partial1.user_email_confirmed, partial1.user_password_reset_requested, partial2.user_first_name, partial2.user_last_name, partial2.user_org)::flingapp.simple_user;
+  RETURN (
+    partial1.user_acc_id, 
+    partial1.user_email, 
+    partial1.user_email_confirmed, 
+    partial1.user_password_reset_requested, 
+    partial2.user_first_name, 
+    partial2.user_last_name, 
+    partial2.user_org
+  )::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
@@ -1953,7 +2000,15 @@ BEGIN
     WHERE cu.user_id = exists.user_acc_id
   RETURNING * INTO partial;
 
-  RETURN (exists.user_acc_id, exists.user_email, exists.user_email_confirmed, exists.user_password_reset_requested, partial.user_first_name, partial.user_last_name, partial.user_org)::flingapp.simple_user;
+  RETURN (
+    exists.user_acc_id, 
+    exists.user_email, 
+    exists.user_email_confirmed, 
+    exists.user_password_reset_requested, 
+    partial.user_first_name, 
+    partial.user_last_name, 
+    partial.user_org
+  )::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
