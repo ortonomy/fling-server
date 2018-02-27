@@ -1910,6 +1910,28 @@ COMMENT ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) IS 'Validates a req
 
 
 
+-- 3. find an orgrequest by ID
+CREATE OR REPLACE FUNCTION flingapp.org_request_by_requestor_id(
+  requestor_id UUID
+) returns flingapp.simple_access_request AS $$
+DECLARE
+  result flingapp.simple_access_request;
+BEGIN
+  SELECT * INTO result
+  FROM flingapp.simple_access_request as saq
+  WHERE saq.requestor_id = $1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  ELSE
+    RETURN result;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.org_request_by_requestor_id(UUID) IS 'Retrieves a single org request by `User` UUID so that we can find if they''ve got a request pending';
+
+
+
 -- ***** CUSTOM CRUD *****
 
 -- 2a. UPDATE BY ID
@@ -2286,6 +2308,7 @@ GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser, :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.request_access_to_org(UUID, UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.org_request_by_requestor_id(UUID) to :flingpgql;
 
 
 -- RLS settings
