@@ -990,7 +990,7 @@ CREATE TABLE flingapp.organization(
   org_id UUID NOT NULL DEFAULT gen_random_uuid(),
   org_name TEXT NOT NULL,
   org_admin UUID NOT NULL,
-  org_domain TEXT NOT NULL,
+  org_domain TEXT DEFAULT NULL,
   created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   -- keys
@@ -1451,10 +1451,10 @@ CREATE TABLE flingapp.project_text_note_map(
   proj_note_map_text_note UUID NOT NULL,
   CONSTRAINT project_text_note_map_pkey PRIMARY KEY (proj_note_map_project, proj_note_map_text_note),
   CONSTRAINT project_text_note_map_project_fkey FOREIGN KEY (proj_note_map_project)
-    REFERENCES flingapp.freelancer (fl_id)
+    REFERENCES flingapp.project (proj_id) MATCH SIMPLE
     ON DELETE RESTRICT,
   CONSTRAINT freelancer_text_note_map_text_note_fkey FOREIGN KEY (proj_note_map_text_note)
-    REFERENCES flingapp.text_note (txt_note_id)
+    REFERENCES flingapp.text_note (txt_note_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
@@ -1474,10 +1474,10 @@ CREATE TABLE flingapp.work_history_text_note_map(
   wh_note_map_text_note UUID NOT NULL,
   CONSTRAINT work_history_text_note_map_pkey PRIMARY KEY (wh_note_map_work_history, wh_note_map_text_note),
   CONSTRAINT work_history_text_note_map_work_history_fkey FOREIGN KEY (wh_note_map_work_history)
-    REFERENCES flingapp.work_history (wh_id)
+    REFERENCES flingapp.work_history (wh_id) MATCH SIMPLE
     ON DELETE RESTRICT,
   CONSTRAINT work_history_text_note_map_text_note_fkey FOREIGN KEY (wh_note_map_text_note)
-    REFERENCES flingapp.text_note (txt_note_id)
+    REFERENCES flingapp.text_note (txt_note_id) MATCH SIMPLE
     ON DELETE CASCADE
 );
 -- comment on freelancers to text notes
@@ -1511,6 +1511,30 @@ COMMENT ON COLUMN flingapp.freelancer_org_map.freelancer_org_map_freelancer IS '
 
 
 
+-- 26. record access requests to organizations
+CREATE TABLE flingapp_private.org_access_request(
+  access_req_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL,
+  requestor_id UUID NOT NULL,
+  request_selector TEXT NOT NULL,
+  request_validator_hash TEXT NOT NULL,
+  request_confirmed BOOLEAN DEFAULT FALSE,
+  CONSTRAINT org_access_request_pkey PRIMARY KEY (access_req_id),
+  CONSTRAINT org_access_request_key UNIQUE (org_id, requestor_id),
+  CONSTRAINT org_access_request_requestor_fkey FOREIGN KEY (requestor_id)
+    REFERENCES flingapp_private.user_account (user_acc_id) MATCH SIMPLE,
+  CONSTRAINT org_access_request_org_fkey FOREIGN KEY (org_id)
+    REFERENCES flingapp.organization (org_id) MATCH SIMPLE
+);
+-- comments for the org_access_request table
+COMMENT ON TABLE flingapp_private.org_access_request IS 'A request to join an organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.access_req_id IS 'The universally unique ID of a single `Access Request` to an organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.org_id IS 'The universally unique ID of the organization being the request is for.';
+COMMENT ON COLUMN flingapp_private.org_access_request.requestor_id IS 'The universally unique ID of a single ``User`` requesting access to the organization';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_selector IS 'The selector used to find the request when validating.';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_validator_hash IS 'The verifier has verifying the lookup of the request.';
+COMMENT ON COLUMN flingapp_private.org_access_request.request_confirmed IS 'An indication of whether the request has been fulfilled.';
+
 
 -- ***** VIEWS ***** 
 -- create any necessary views across different schemas where we need a single or all select function
@@ -1520,7 +1544,15 @@ CREATE OR REPLACE VIEW flingapp.simple_user WITH (security_barrier) AS
   SELECT u_acc.user_acc_id, u_acc.user_email, u_acc.user_email_confirmed, u_acc.user_password_reset_requested, u.user_first_name, u.user_last_name, u.user_org
   FROM flingapp_private.user_account u_acc, flingapp_custom.user u
   WHERE u_acc.user_acc_id = u.user_id AND u.user_id = current_setting('jwt.claims.user_acc_id')::uuid;
+COMMENT ON VIEW flingapp.simple_user IS 'A view over hidden user tables protected by RLS, so returns only a single `User`. Removes sensitive data from query results.';
 
+
+
+-- 2. view over org access request to remove the need to expose selector and verifier information
+CREATE OR REPLACE VIEW flingapp.simple_access_request AS 
+  SELECT oaq.org_id, oaq.requestor_id, oaq.request_confirmed
+  FROM flingapp_private.org_access_request oaq;
+COMMENT ON VIEW flingapp.simple_access_request IS 'A view over hidden table for org access requests. Removes sensitive data from query results.';
 
 
 
@@ -1574,6 +1606,24 @@ CREATE TYPE flingapp.full_user_detail AS (
   user_email TEXT,
   user_first_name TEXT,
   user_last_name TEXT
+);
+
+
+-- return type for org request_access_to_org
+CREATE TYPE flingapp.access_request AS (
+  req_id UUID,
+  org_id UUID,
+  requestor_id UUID,
+  requestor_first_name TEXT,
+  requestor_last_name TEXT,
+  org_name TEXT,
+  admin_id UUID,
+  admin_email TEXT,
+  admin_first_name TEXT,
+  admin_last_name TEXT,
+  selector TEXT,
+  verifier TEXT,
+  request_status BOOLEAN
 );
 
 
@@ -1674,7 +1724,7 @@ BEGIN
     RETURN null;
   END if;
 END;
-$$ LANGUAGE plpgsql STRICT SECURITY DEFINER;
+$$ LANGUAGE plpgsql STABLE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.authenticate(text, text) IS 'Creates a JWT token that will securely identify a person and give them certain permissions.';
 
 
@@ -1736,40 +1786,208 @@ $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.activate_user(text, text) IS 'Activates and verifies single `User` account and email allowing them to do more in the app.';
 
 
+-- ***** ORG Functions *****
+
+-- insert org functions here
+
+--1. requests access to organization and returns the request with selector and verifier information
+CREATE OR REPLACE FUNCTION flingapp.request_access_to_org(
+  org_id UUID,
+  requestor_id UUID
+) RETURNS flingapp.access_request AS $$
+DECLARE
+  selector TEXT;
+  verifier TEXT;
+  requestor flingapp.full_user_detail;
+  admin flingapp.full_user_detail ;
+  org flingapp.organization;
+  upsert_result flingapp_private.org_access_request;
+BEGIN
+
+  SELECT flingapp_private.random_string(15) INTO selector;
+  SELECT flingapp_private.random_string(18) INTO verifier;
+
+  SELECT * INTO org
+  FROM flingapp.organization
+  WHERE $1 = flingapp.organization.org_id; 
+
+  SELECT
+  user_id,
+  user_email,
+  user_first_name,
+  user_last_name INTO admin
+  FROM
+    flingapp_custom.user AS cu
+    INNER JOIN flingapp_private.user_account AS pu ON pu.user_acc_id = cu.user_id
+  WHERE 
+    cu.user_id = org.org_admin;
+
+  SELECT
+  user_id,
+  user_email,
+  user_first_name,
+  user_last_name INTO requestor
+  FROM 
+    flingapp_custom.user AS cu
+    INNER JOIN flingapp_private.user_account AS pu ON pu.user_acc_id = cu.user_id
+  WHERE
+    cu.user_id = requestor_id;
+
+  INSERT INTO flingapp_private.org_access_request as oaq (org_id, requestor_id, request_selector, request_validator_hash) 
+    VALUES (
+      $1,
+      $2,
+      selector,
+      crypt(verifier, gen_salt('bf', 8))
+    )
+    ON CONFLICT ON CONSTRAINT org_access_request_key DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE oaq.requestor_id = $2
+    RETURNING * INTO upsert_result;
+
+  RETURN (
+    upsert_result.access_req_id, 
+    org.org_id, 
+    requestor.user_id,
+    requestor.user_first_name,
+    requestor.user_last_name,
+    org.org_name, 
+    admin.user_id, 
+    admin.user_email, 
+    admin.user_first_name, 
+    admin.user_last_name, 
+    selector, 
+    verifier, 
+    FALSE
+  )::flingapp.access_request;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.request_access_to_org(UUID, UUID) IS 'Registers a request for access to an organizatin by another user and returns the values needed for the validation email';
+
+
+
+
+--2. validates a request to access an organization
+CREATE OR REPLACE FUNCTION flingapp.validate_org_access(
+  selector TEXT,
+  verifier TEXT
+) RETURNS flingapp.simple_access_request AS $$
+DECLARE
+  result flingapp.simple_access_request;
+  request  flingapp_private.org_access_request;
+BEGIN
+  SELECT * INTO request
+  FROM flingapp_private.org_access_request
+  WHERE request_selector = $1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  IF request.request_validator_hash = crypt(verifier, request.request_validator_hash) AND NOT request.request_confirmed THEN
+    UPDATE flingapp_private.org_access_request as oaq
+    SET
+      request_confirmed = TRUE
+    WHERE oaq.access_req_id = request.access_req_id;
+
+    UPDATE flingapp_custom.user AS cu
+    SET 
+      user_org = request.org_id
+    WHERE cu.user_id = request.requestor_id;
+
+    SELECT * INTO result 
+    FROM flingapp.simple_access_request as sar
+    WHERE sar.requestor_id = request.requestor_id;
+
+    RETURN result;
+  ELSE 
+    RETURN NULL;
+  END IF;
+
+END;
+$$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) IS 'Validates a request to access an organization and adds the organization to the user if successful';
+
+
+
+
+-- 3. find an orgrequest by ID
+CREATE OR REPLACE FUNCTION flingapp.org_request_by_requestor_id(
+  requestor_id UUID
+) returns flingapp.simple_access_request AS $$
+DECLARE
+  result flingapp.simple_access_request;
+BEGIN
+  SELECT * INTO result
+  FROM flingapp.simple_access_request as saq
+  WHERE saq.requestor_id = $1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  ELSE
+    RETURN result;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE STRICT SECURITY DEFINER;
+COMMENT ON FUNCTION flingapp.org_request_by_requestor_id(UUID) IS 'Retrieves a single org request by `User` UUID so that we can find if they''ve got a request pending';
+
 
 
 -- ***** CUSTOM CRUD *****
 
 -- 2a. UPDATE BY ID
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_id(
-  user_id UUID,
+  user_id_in UUID,
   user_email_in TEXT,
   user_first_name_in TEXT,
-  user_last_name_in TEXT
-) RETURNS flingapp.full_user_detail AS $$
+  user_last_name_in TEXT,
+  user_org_in UUID
+) RETURNS flingapp.simple_user AS $$
 DECLARE 
-  result flingapp.full_user_detail;
+  exists flingapp.simple_user;
+  partial1 flingapp_private.user_account;
+  partial2 flingapp_custom.user;
 BEGIN
-  UPDATE flingapp_private.user_account
-  SET
-    user_email = $2
-  WHERE user_acc_id = $1;
   
-  UPDATE flingapp_custom.user
-  SET
-    user_first_name = $3,
-    user_last_name = $4
-  WHERE user_id = $1;
+  -- check if user exists
+  SELECT * INTO exists
+  FROM flingapp.simple_user as u
+  WHERE u.user_acc_id = $1;
 
-  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name INTO result
-  FROM flingapp_private.user_account acc, flingapp_custom.user u
-  WHERE acc.user_acc_id = $1 AND acc.user_acc_id = u.user_id;
+  -- return null if not found
+  IF NOT FOUND THEN 
+    RETURN NULL;
+  END IF;
 
-  RETURN result;
+  -- update hidden account details
+  UPDATE flingapp_private.user_account as pu
+    SET
+      user_email = user_email_in
+    WHERE pu.user_acc_id = user_id_in
+    RETURNING * INTO partial1;
+
+  -- update standard user details
+  UPDATE flingapp_custom.user as cu
+    SET
+      user_first_name = user_first_name_in,
+      user_last_name = user_last_name_in,
+      user_org = user_org_in
+    WHERE cu.user_id = user_id_in
+    RETURNING * INTO partial2;
+
+  -- returning updated records
+  RETURN (
+    partial1.user_acc_id, 
+    partial1.user_email, 
+    partial1.user_email_confirmed, 
+    partial1.user_password_reset_requested, 
+    partial2.user_first_name, 
+    partial2.user_last_name, 
+    partial2.user_org
+  )::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) IS 'Updates a single `User` using the supplied UUID';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID) IS 'Updates a single `User` using the supplied UUID';
 
 
 
@@ -1778,29 +1996,45 @@ COMMENT ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) IS 'U
 CREATE OR REPLACE FUNCTION flingapp.usr_update_user_by_email(
   user_email_in TEXT,
   user_first_name_in TEXT,
-  user_last_name_in TEXT
-) RETURNS flingapp.full_user_detail AS $$
+  user_last_name_in TEXT,
+  user_org_in UUID
+) RETURNS flingapp.simple_user AS $$
 DECLARE 
-  u_id UUID;
-  result flingapp.full_user_detail;
+  exists flingapp.simple_user;
+  partial flingapp_custom.user;
 BEGIN
-  SELECT user_acc_id FROM flingapp_private.user_account WHERE user_email = user_email_in INTO u_id;
 
-  UPDATE flingapp_custom.user
-  SET
-    user_first_name = $2,
-    user_last_name = $3
-  WHERE user_id = u_id;
+  -- check if uer exists
+  SELECT * INTO exists
+  FROM flingapp.simple_user as u
+  WHERE u.user_email = $1;
 
-  SELECT acc.user_acc_id, acc.user_email, u.user_first_name, u.user_last_name INTO result
-  FROM flingapp_private.user_account acc, flingapp_custom.user u
-  WHERE acc.user_acc_id = u_id AND acc.user_acc_id = u.user_id;
+  -- reject if not found
+  IF NOT FOUND THEN 
+    RETURN NULL;
+  END IF;
 
-  RETURN result; 
+  UPDATE flingapp_custom.user as cu
+    SET
+      user_first_name = $2,
+      user_last_name = $3,
+      user_org = $4
+    WHERE cu.user_id = exists.user_acc_id
+  RETURNING * INTO partial;
+
+  RETURN (
+    exists.user_acc_id, 
+    exists.user_email, 
+    exists.user_email_confirmed, 
+    exists.user_password_reset_requested, 
+    partial.user_first_name, 
+    partial.user_last_name, 
+    partial.user_org
+  )::flingapp.simple_user;
 
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
-COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) IS 'Updates a single `User` using the supplied email address';
+COMMENT ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, UUID) IS 'Updates a single `User` using the supplied email address';
 
 
 
@@ -1899,8 +2133,8 @@ GRANT USAGE ON SCHEMA flingapp TO :flinganon, :flinguser;
 
 
 -- 3. organization
-GRANT SELECT ON TABLE flingapp.organization to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser;
+GRANT SELECT ON TABLE flingapp.organization to :flingpgql;
+GRANT INSERT, UPDATE, DELETE ON TABLE flingapp.organization to :flingpgql;
 
 
 
@@ -1913,43 +2147,43 @@ GRANT UPDATE, DELETE ON TABLE flingapp.organization to :flinguser;
 
 
 -- 5. freelancer
-GRANT SELECT ON TABLE flingapp.freelancer to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer to :flingpgql;
 
 
 
 
 -- 6. freelancer_role
-GRANT SELECT ON TABLE flingapp.freelancer_role to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_role to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role to :flingpgql ;
 
 
 
 
 -- 7. freelancer_role_map
-GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_role_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_role_map to :flingpgql ;
 
 
 
 
 -- 8. freelancer_language_map
-GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_language_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_language_map to :flingpgql ;
 
 
 
 
 -- 9. freelancer_employment_status_map
-GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_employment_status_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_employment_status_map to :flingpgql ;
 
 
 
 
 -- 10. freelancer_external_links_map
-GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_external_links_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flingpgql ;
 
 
 
@@ -1960,96 +2194,96 @@ GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_external_links_map to :flingus
 
 
 -- 12. freelancer_file_store_map
-GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_file_store_map to  :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_file_store_map to :flingpgql;
 
 
 
 
 -- 13. project
-GRANT SELECT ON TABLE flingapp.project to  :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project to  :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project to :flingpgql ;
 
 
 
 
 -- 14. project_freelancer_map
-GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_freelancer_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_freelancer_map to :flingpgql ;
 
 
 
 
 -- 15. project_file_store_map
-GRANT SELECT ON TABLE flingapp.project_file_store_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_file_store_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_file_store_map to :flingpgql ;
 
 
 
 
 -- 16. project_role_map
-GRANT SELECT ON TABLE flingapp.project_role_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_role_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_role_map to :flingpgql ;
 
 
 
 
 -- 17. work_item
-GRANT SELECT ON TABLE flingapp.work_item to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_item to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_item to :flingpgql ;
 
 
 
 
 -- 18. project_work_item_map
-GRANT SELECT ON TABLE flingapp.project_work_item_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_work_item_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_work_item_map to :flingpgql ;
 
 
 
 
 -- 19. work_history
-GRANT SELECT ON TABLE flingapp.work_history to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history to :flingpgql ;
 
 -- 20. work_history_file_map
-GRANT SELECT ON TABLE flingapp.work_history_file_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history_file_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_file_map to :flingpgql ;
 
 
 
 
 -- 21. text_note
-GRANT SELECT ON TABLE flingapp.text_note to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flinguser ;
+GRANT SELECT ON TABLE flingapp.text_note to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.text_note to :flingpgql ;
 
 
 
 
 -- 22. freelancer_text_note_map
-GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.freelancer_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_text_note_map to :flingpgql ;
 
 
 
 
 -- 23. project_text_note_map
-GRANT SELECT ON TABLE flingapp.project_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.project_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.project_text_note_map to :flingpgql ;
 
 
 
 
 -- 24. work_history_text_note_map
-GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flinguser ;
+GRANT SELECT ON TABLE flingapp.work_history_text_note_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.work_history_text_note_map to :flingpgql ;
 
 
 
 
 -- 25. fl_org_map
-GRANT SELECT ON TABLE flingapp.freelancer_org_map to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flinguser;
+GRANT SELECT ON TABLE flingapp.freelancer_org_map to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flingpgql;
 
 
 
@@ -2057,8 +2291,8 @@ GRANT UPDATE, DELETE ON TABLE flingapp.freelancer_org_map to :flinguser;
 -- VIEW GRANTS
 
 -- 1. simple_user
-GRANT SELECT ON TABLE flingapp.simple_user to :flinguser;
-GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flinguser;
+GRANT SELECT ON TABLE flingapp.simple_user to :flingpgql;
+GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flingpgql;
 
 
 
@@ -2066,14 +2300,15 @@ GRANT UPDATE, DELETE ON TABLE flingapp.simple_user to :flinguser;
 -- FUNCTION GRANTS
 
 GRANT EXECUTE ON FUNCTION flingapp.usr_register_user(text, text, text, text) to :flinganon;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text) to :flingpgql;
-GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_id(UUID, text, text, text, UUID) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.usr_update_user_by_email(text, text, text, UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.usr_delete_user_by_id(UUID) to :flingpgql;
 GRANT EXECUTE ON FUNCTION flingapp.authenticate(text, text) to :flinganon;
 GRANT EXECUTE ON FUNCTION flingapp.activate_user(text, text) to :flinguser;
 GRANT EXECUTE ON FUNCTION flingapp.this_user() to :flinganon, :flinguser, :flingpgql;
-
-
+GRANT EXECUTE ON FUNCTION flingapp.request_access_to_org(UUID, UUID) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.validate_org_access(TEXT, TEXT) to :flingpgql;
+GRANT EXECUTE ON FUNCTION flingapp.org_request_by_requestor_id(UUID) to :flingpgql;
 
 
 -- RLS settings
@@ -2091,6 +2326,17 @@ CREATE POLICY select_user ON flingapp_private.user_account FOR SELECT TO :flingu
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
 CREATE POLICY update_user ON flingapp_private.user_account FOR UPDATE TO :flinguser, :flingpgql
   USING (user_acc_id = current_setting('jwt.claims.user_acc_id')::uuid);
+
+
+
+
+ALTER TABLE flingapp.organization ENABLE row level security;
+CREATE POLICY insert_org ON flingapp.organization FOR INSERT TO :flingpgql
+  WITH CHECK (org_admin = current_setting('jwt.claims.user_acc_id')::uuid);
+CREATE POLICY update_org ON flingapp.organization FOR UPDATE TO :flingpgql
+  USING (org_admin = current_setting('jwt.claims.user_acc_id')::uuid); 
+CREATE POLICY select_org ON flingapp.organization FOR SELECT TO :flingpgql
+  USING (true);
 
 begin;
 
