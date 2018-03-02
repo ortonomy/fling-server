@@ -7,14 +7,12 @@
   "author": "ortonomy <app@ortonomy.co>",
   "license": "GPL-3.0",
   "dependencies": {
-    "axios": "^0.17.1",
     "cors": "^2.8.4",
+    "debug": "^3.1.0",
     "dotenv": "^4.0.0",
     "express": "^4.15.3",
-    "http-proxy-middleware": "^0.17.4",
-    "node-http-proxy-json": "^0.1.6",
-    "postgraphql": "^3.5.5",
-    "request": "^2.83.0",
+    "pg": "^7.4.1",
+    "postgraphile": "^4.0.0-alpha2.33",
     "sparkpost": "^2.1.2"
   },
   "devDependencies": {
@@ -24,7 +22,8 @@
     "nodemon": "^1.15.0"
   },
   "scripts": {
-    "start": "NODE_ENV=DEVELOPMENT nodemon lib/app.js --exec babel-node --presets env --inspect",
+    "start": "pm2 start pm2.config.js",
+    "kill-dev": "pm2 kill",
     "build": "babel lib -d dist --presets env",
     "serve": "node dist/app.js",
     "start:cli-dev": "postgraphql --host 127.0.0.1 --watch --connection postgres://flingapp_postgraphql:YourFlingAppPassword@localhost:5432/fling --schema flingapp --default-role flingapp_anonymous --token flingapp.jwt_token --secret develop.DEVELOP"
