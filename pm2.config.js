@@ -7,7 +7,8 @@ module.exports = {
       interpreter: "babel-node",
       env: {
         "NODE_ENV": "DEVELOPMENT"
-      }
+      },
+      "node_args": ["--inspect"]
     },
     {
       name: "worker",
