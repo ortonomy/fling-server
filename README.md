@@ -18,7 +18,8 @@ npm start
 ````
 
 ## Notes
-- Server runs on port ``3001``. 
+- API server runs on port ``3001``. 
+- You must have postgreSQL running before running the install script.
 - You'll need to open a port on your server firewall ``3001`` using ``ufw`` or put the server behind a reverse proxy.
 - You'll need a ``.env`` file with the sparkpost API key. Without it, emailing from queue jobs will not work
 
