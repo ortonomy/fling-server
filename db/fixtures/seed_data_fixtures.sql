@@ -36,7 +36,11 @@ BEGIN
   PERFORM set_config('jwt.claims.user_acc_id', user1.user_id::TEXT, true);
 
   -- activate the user immediately
-  PERFORM flingapp.activate_user( user1.account_selector, user1.account_verifier);
+  UPDATE flingapp_private.user_account
+    SET 
+      user_email_confirmed = true
+    WHERE user_acc_id = user1.user_id;
+
 
   -- create a new organization with the user as the owner
   INSERT INTO flingapp.organization(
@@ -228,7 +232,10 @@ BEGIN
   RAISE NOTICE 'New user ID for orgcreation: % ', user2.user_id;
 
   -- activate this new user
-  PERFORM flingapp.activate_user( user2.account_selector, user2.account_verifier);
+  UPDATE flingapp_private.user_account
+    SET 
+      user_email_confirmed = true
+    WHERE user_acc_id = user2.user_id;
 
 END $$;
 

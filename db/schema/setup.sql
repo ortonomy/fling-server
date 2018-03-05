@@ -32,7 +32,7 @@ DROP ROLE IF EXISTS :flinguser;
 
 -- create our database account owner and give it privileges
 -- change the password to your own for installation
-CREATE ROLE :flingadmin WITH LOGIN PASSWORD :'adminpass';
+CREATE ROLE :flingadmin WITH LOGIN PASSWORD :'adminpass' SUPERUSER;
 
 -- create our role that is used to login into postgres with postgraphql
 -- change the password to your own for installation
@@ -1592,8 +1592,6 @@ CREATE TYPE flingapp.registered_user as (
   first_name TEXT,
   last_name TEXT,
   email TEXT,
-  account_selector TEXT,
-  account_verifier TEXT,
   account_activated BOOLEAN
 );
 
@@ -1613,16 +1611,10 @@ CREATE TYPE flingapp.full_user_detail AS (
 CREATE TYPE flingapp.access_request AS (
   req_id UUID,
   org_id UUID,
+  org_name TEXT,
   requestor_id UUID,
   requestor_first_name TEXT,
   requestor_last_name TEXT,
-  org_name TEXT,
-  admin_id UUID,
-  admin_email TEXT,
-  admin_first_name TEXT,
-  admin_last_name TEXT,
-  selector TEXT,
-  verifier TEXT,
   request_status BOOLEAN
 );
 
@@ -1681,8 +1673,9 @@ DECLARE
   user_account flingapp_private.user_account;
   account_selector TEXT;
   account_verifier TEXT;
+  job JSON;
 BEGIN
-
+  
   SELECT flingapp_private.random_string(15) INTO account_selector;
   SELECT flingapp_private.random_string(18) INTO account_verifier;
 
@@ -1694,7 +1687,18 @@ BEGIN
     (user_account.user_acc_id, first_name, last_name)
     RETURNING * into user_details;
 
-  RETURN (user_details.user_id, user_details.user_first_name, user_details.user_last_name, user_account.user_email, account_selector, account_verifier, FALSE)::flingapp.registered_user;
+  SELECT json_build_object(
+    'selector',account_selector,
+    'verifier',account_verifier,
+    'id',user_details.user_id,
+    'firstName', user_details.user_first_name,
+    'lastName', user_details.user_last_name,
+    'email', user_account.user_email
+  ) INTO job;
+
+  PERFORM flingapp_jobs.add_job('registerEmail', 'registrations', job);
+
+  RETURN (user_details.user_id, user_details.user_first_name, user_details.user_last_name, user_account.user_email, FALSE)::flingapp.registered_user;
 END;
 $$ LANGUAGE plpgsql VOLATILE STRICT SECURITY DEFINER;
 COMMENT ON FUNCTION flingapp.usr_register_user(text, text, text, text) IS 'Registers a single `User` and creates an account in flingapp.';
@@ -1802,6 +1806,7 @@ DECLARE
   admin flingapp.full_user_detail ;
   org flingapp.organization;
   upsert_result flingapp_private.org_access_request;
+  job JSON;
 BEGIN
 
   SELECT flingapp_private.random_string(15) INTO selector;
@@ -1843,19 +1848,26 @@ BEGIN
     ON CONFLICT ON CONSTRAINT org_access_request_key DO UPDATE SET request_selector = selector, request_validator_hash = crypt(verifier, gen_salt('bf', 8)), request_confirmed = FALSE  WHERE oaq.requestor_id = $2
     RETURNING * INTO upsert_result;
 
+  SELECT json_build_object(
+    'selector',selector,
+    'verifier',verifier,
+    'requestorFirstName',requestor.user_first_name
+    'requestorLastName', requestor.user_last_name,
+    'adminEmail', admin.user_email,
+    'adminFirstName', admin.user_first_name,
+    'adminLastName', admin.user_last_name,
+    'orgName', org.org_name
+  ) INTO job;
+
+  PERFORM flingapp_jobs.add_job('validationEmail', 'orgAccessRequests', job);
+
   RETURN (
     upsert_result.access_req_id, 
     org.org_id, 
+    org.org_name,
     requestor.user_id,
     requestor.user_first_name,
     requestor.user_last_name,
-    org.org_name, 
-    admin.user_id, 
-    admin.user_email, 
-    admin.user_first_name, 
-    admin.user_last_name, 
-    selector, 
-    verifier, 
     FALSE
   )::flingapp.access_request;
 
