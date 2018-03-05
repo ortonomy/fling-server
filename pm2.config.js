@@ -18,7 +18,7 @@ module.exports = {
       env: {
         "PGHOST": "localhost",
         "PGDATABASE": "fling",
-        "PGUSER": "flingadmin",
+        "PGUSER": "flingapp_admin",
         "PGPASSWORD": 'FlingAppMakesItEasy',
         "PGPORT": 5432,
         "NODE_ENV": "DEVELOPMENT"
