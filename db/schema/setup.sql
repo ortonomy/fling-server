@@ -1219,7 +1219,6 @@ COMMENT ON COLUMN flingapp.freelancer_file_store_map.fl_fs_map_doc_type IS 'A la
 -- 13. core project store
 CREATE TABLE flingapp.project(
   proj_id UUID NOT NULL DEFAULT gen_random_uuid(),
-  proj_friendlyURL TEXT NOT NULL,
   proj_name TEXT NOT NULL,
   proj_start_date DATE NOT NULL,
   proj_end_date DATE NOT NULL,
@@ -1671,6 +1670,7 @@ begin
   return new;
 end 
 $$;
+
 
 
 -- ***** AUTH *****
@@ -2141,6 +2141,7 @@ CREATE TRIGGER add_freelancer_gen_shortURL BEFORE INSERT
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.gen_freelancer_shortcode();
 
+  
 -- **** Privileges
 
 -- SCHEMA GRANTS
