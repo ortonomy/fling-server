@@ -1,54 +1,9 @@
-end;
--- drop the app databse if it already exists
-DROP DATABASE IF EXISTS fling;
-
-
-
 
 -- set some variables for our new users
 \set flingadmin 'flingapp_admin'
 \set flingpgql 'flingapp_postgraphql'
 \set flinganon 'flingapp_anonymous'
 \set flinguser 'flingapp_user'
-
-
-
-
--- drop all roles if they exist in postgres instance
-DROP ROLE IF EXISTS :flingadmin;
-DROP ROLE IF EXISTS :flingpgql;
-DROP ROLE IF EXISTS :flinganon;
-DROP ROLE IF EXISTS :flinguser;
-
-
-
-
--- set up your passwords here
-\set adminpass 'FlingAppMakesItEasy'
-\set pgqlpass 'YourFlingAppPassword'
-
-
-
-
--- create our database account owner and give it privileges
--- change the password to your own for installation
-CREATE ROLE :flingadmin WITH LOGIN PASSWORD :'adminpass' SUPERUSER;
-
--- create our role that is used to login into postgres with postgraphql
--- change the password to your own for installation
-CREATE ROLE :flingpgql WITH LOGIN PASSWORD :'pgqlpass';
-
--- create our role that will be the default user before user logs in
-CREATE ROLE :flinganon;
-
--- create our role that will be the default user after user logs in
-CREATE ROLE :flinguser;
-
-
-
-
--- create our awesome app db
-CREATE DATABASE fling WITH OWNER :flingadmin;
 
 
 
@@ -2350,6 +2305,5 @@ CREATE POLICY update_org ON flingapp.organization FOR UPDATE TO :flingpgql
 CREATE POLICY select_org ON flingapp.organization FOR SELECT TO :flingpgql
   USING (true);
 
-begin;
 
 

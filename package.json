@@ -22,8 +22,8 @@
     "nodemon": "^1.15.0"
   },
   "scripts": {
-    "start": "pm2 start pm2.config.js",
-    "kill-dev": "pm2 kill",
+    "start": "pm2 flush && pm2 start pm2.config.js",
+    "kill-dev": "pm2 flush && pm2 kill",
     "build": "babel lib -d dist --presets env",
     "serve": "node dist/app.js",
     "start:cli-dev": "postgraphql --host 127.0.0.1 --watch --connection postgres://flingapp_postgraphql:YourFlingAppPassword@localhost:5432/fling --schema flingapp --default-role flingapp_anonymous --token flingapp.jwt_token --secret develop.DEVELOP"

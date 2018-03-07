@@ -10,11 +10,13 @@ For now, this server is only suitable for *DEVELOPMENT* purposes. Do not use in 
 
 ## Run development server with test data 
 
+IMPORTANT: note you need to pass the passwords you will use for the admin and postgraphql user to the install script, and also pass the password to npm start as environment variable ``ADMINPASS``
+
 ````
-./INSTALL
+./INSTALL [flingapp_admin_pass] [flingapp_postgraphql_pass]
 npm install -g pm2
 npm install
-npm start
+ADMINPASS=[flingapp_admin_pass] npm start
 ````
 
 ## Notes

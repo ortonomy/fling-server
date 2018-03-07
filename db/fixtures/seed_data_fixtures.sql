@@ -14,8 +14,8 @@ SET ROLE :flingadmin;
 
 DO $$
 DECLARE  
-   user1 flingapp.registered_user;
-   user2 flingapp.registered_user;
+   user1 UUID;
+   user2 UUID;
    org1 UUID;
    freelancer1 flingapp.freelancer;
    freelancer2 flingapp.freelancer;
@@ -27,19 +27,36 @@ DECLARE
    jwtUser UUID;
 BEGIN  
   -- register a single user for full permissions
-  SELECT * INTO user1 FROM flingapp.usr_register_user(first_name:='Gregory',last_name:= 'Orton', email:='test@ortonomy.co', password:='12345678');
-  RAISE NOTICE 'New user is: %', user1;
-  RAISE NOTICE 'New user ID: % ', user1.user_id;
+  INSERT INTO flingapp_private.user_account(
+    user_email,
+    user_email_confirmed,
+    user_email_confirm_token_selector,
+    user_email_confirm_token_verifier_hash,
+    user_password_hash
+  ) VALUES (
+    'flingtest1@ortonomy.co',
+    true,
+    flingapp_private.random_string(15),
+    crypt(flingapp_private.random_string(18), gen_salt('bf', 8)),
+    crypt('12345678', gen_salt('bf', 8))
+  ) RETURNING user_acc_id into user1;
+
+  INSERT INTO flingapp_custom.user(
+    user_id, 
+    user_first_name, 
+    user_last_name
+  ) 
+  VALUES
+  (
+    user1, 
+    'Gregory', 
+    'Orton'
+  );
+  RAISE NOTICE 'New user ID is: % ', user1;
   
   -- set role to be able to execute
   PERFORM set_config('jwt.claims.role', 'flingapp_postgraphql', true);
-  PERFORM set_config('jwt.claims.user_acc_id', user1.user_id::TEXT, true);
-
-  -- activate the user immediately
-  UPDATE flingapp_private.user_account
-    SET 
-      user_email_confirmed = true
-    WHERE user_acc_id = user1.user_id;
+  PERFORM set_config('jwt.claims.user_acc_id', user1::TEXT, true);
 
 
   -- create a new organization with the user as the owner
@@ -49,7 +66,7 @@ BEGIN
   )
   VALUES (
     'Ortonomy Labs',
-    user1.user_id
+    user1
   )
   RETURNING org_id INTO org1;
   RAISE NOTICE 'New org ID is: %', org1;
@@ -60,7 +77,7 @@ BEGIN
   UPDATE flingapp_custom.user
   SET 
     user_org = org1
-  WHERE flingapp_custom.user.user_id = user1.user_id;
+  WHERE flingapp_custom.user.user_id = user1;
 
 
 
@@ -227,15 +244,37 @@ BEGIN
   );
 
   -- create a new user for org creation testing
-  SELECT * INTO user2 FROM flingapp.usr_register_user(first_name:='Org',last_name:= 'Creator', email:='test2@ortonomy.co', password:='12345678');
-  RAISE NOTICE 'New user for orgcreation is: %', user2;
-  RAISE NOTICE 'New user ID for orgcreation: % ', user2.user_id;
+  -- register a single user for full permissions
+  INSERT INTO flingapp_private.user_account(
+    user_email,
+    user_email_confirmed,
+    user_email_confirm_token_selector,
+    user_email_confirm_token_verifier_hash,
+    user_password_hash
+  ) 
+  VALUES 
+  (
+    'flingtest2@ortonomy.co',
+    true,
+    flingapp_private.random_string(15),
+    crypt(flingapp_private.random_string(18), gen_salt('bf', 8)),
+    crypt('12345678', gen_salt('bf', 8))
+  )
+  RETURNING user_acc_id into user2;
 
-  -- activate this new user
-  UPDATE flingapp_private.user_account
-    SET 
-      user_email_confirmed = true
-    WHERE user_acc_id = user2.user_id;
+  INSERT INTO flingapp_custom.user(
+    user_id, 
+    user_first_name, 
+    user_last_name
+  ) 
+  VALUES
+  (
+    user2, 
+    'Org', 
+    'Creator'
+  );
+
+  RAISE NOTICE 'New user ID: % ', user2;
 
 END $$;
 

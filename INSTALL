@@ -4,17 +4,49 @@ clear
 
 echo "***** Setting up flingapp back-end *****"
 echo
-
-echo "***** Excuting db and schema creation *****"
+echo "***** destroying existing db *****"
 echo
-psql -f db/schema/setup.sql -1 -v ON_ERROR_STOP=1
+dropdb fling -e -i --if-exists
+echo
+echo "***** deleting existing roles if they exist *****"
+echo
+dropuser flingapp_admin --if-exists
+dropuser flingapp_postgraphql --if-exists
+dropuser flingapp_user --if-exists
+dropuser flingapp_anonymous --if-exists
+echo
+echo "***** Creating roles *****"
+echo
+echo "1. flingapp_admin"
+echo 
+ROLE1="CREATE ROLE flingapp_admin WITH SUPERUSER LOGIN PASSWORD '${1}';"
+psql -c "${ROLE1}"
+echo
+echo "2. flingapp_postgraphql"
+echo
+psql -c "CREATE ROLE flingapp_postgraphql WITH LOGIN PASSWORD '${2}';"
+echo
+echo "3. flingapp_user"
+createuser flingapp_user -e
+echo
+echo "4. flingapp_anonymous (default user)"
+createuser flingapp_anonymous -e 
+echo
+echo
+echo "***** and create new one: ... [fling] *****"
+echo
+createdb fling 'All schemas for flingapp' -e -O flingapp_admin
+echo
+echo "***** running schema creation: schemas, tables, types, functions, grants and RLS *****"
+echo
+PGPASSWORD="${1}" psql -d fling -U flingapp_admin -f db/schema/setup.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "***** Setting up job queue *****"
 echo
-psql -f db/schema/jobs.sql -1 -v ON_ERROR_STOP=1
+PGPASSWORD="${1}" psql -d fling -U flingapp_admin -f db/schema/jobs.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "***** Importing seed data fixtures *****"
 echo
-psql -f db/fixtures/seed_data_fixtures.sql -1 -v ON_ERROR_STOP=1
+PGPASSWORD="${1}" psql -d fling -U flingapp_admin  -f db/fixtures/seed_data_fixtures.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "flingapp is ready to burn. Use [``npm install``] and then [``npm start``] to run dev environment"
