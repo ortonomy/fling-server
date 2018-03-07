@@ -1052,7 +1052,6 @@ ALTER TABLE IF EXISTS flingapp_custom.user
 -- 5. core freelancer entity
 CREATE TABLE flingapp.freelancer(
   fl_id UUID NOT NULL DEFAULT gen_random_uuid(),
-  fl_shortcode TEXT NOT NULL,
   fl_first_name TEXT NOT NULL DEFAULT 'John',
   fl_last_name TEXT NOT NULL DEFAULT 'Doe',
   fl_is_native_speaker BOOLEAN NOT NULL DEFAULT true,
@@ -1066,9 +1065,6 @@ CREATE TABLE flingapp.freelancer(
   updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT timezone('utc'::text, now()),
   CONSTRAINT freelancer_fl_id_pkey PRIMARY KEY (fl_id)
 );
-
-
-
 -- comments for postgraphQL docs
 COMMENT ON TABLE flingapp.freelancer IS 'A freelancer added to fling; Can be attached to a project and workhistory.';
 COMMENT ON COLUMN flingapp.freelancer.fl_id IS 'The universally unique ID of a freelancer in the flingapp db';
@@ -1661,15 +1657,6 @@ $$ LANGUAGE sql IMMUTABLE;
 COMMENT ON FUNCTION flingapp_private.is_empty(TEXT) IS 'Find empty strings or strings containing only whitespace';
 
 
--- 4. Generate short URL from name & UUID for freelancer
-CREATE OR REPLACE FUNCTION flingapp_private.gen_freelancer_shortcode()
-  RETURNS trigger language plpgsql AS
-$$
-begin
-  new.fl_shortcode:= CONCAT(lower(new.fl_last_name),'-',lower(new.fl_first_name),'-',SUBSTR(CAST(new.fl_id AS varchar(50)),1,6));
-  return new;
-end 
-$$;
 
 
 -- ***** AUTH *****
@@ -2029,7 +2016,7 @@ DECLARE
   partial flingapp_custom.user;
 BEGIN
 
-  -- check if user exists
+  -- check if uer exists
   SELECT * INTO exists
   FROM flingapp.simple_user as u
   WHERE u.user_email = $1;
@@ -2134,11 +2121,6 @@ CREATE TRIGGER proj_updated_at BEFORE UPDATE
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
 
-
-CREATE TRIGGER add_freelancer_gen_shortURL BEFORE INSERT 
-  ON flingapp.freelancer
-  FOR EACH ROW
-  EXECUTE PROCEDURE flingapp_private.gen_freelancer_shortcode();
 
 
 

@@ -7,14 +7,14 @@ echo
 
 echo "***** Excuting db and schema creation *****"
 echo
-psql -d postgres -f db/schema/setup.sql -1 -v ON_ERROR_STOP=1
+psql -f db/schema/setup.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "***** Setting up job queue *****"
 echo
-psql -d postgres -f db/schema/jobs.sql -1 -v ON_ERROR_STOP=1
+psql -f db/schema/jobs.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "***** Importing seed data fixtures *****"
 echo
-psql -d postgres -f db/fixtures/seed_data_fixtures.sql -1 -v ON_ERROR_STOP=1
+psql -f db/fixtures/seed_data_fixtures.sql -1 -v ON_ERROR_STOP=1
 echo
 echo "flingapp is ready to burn. Use [``npm install``] and then [``npm start``] to run dev environment"
