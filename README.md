@@ -10,7 +10,7 @@ For now, this server is only suitable for *DEVELOPMENT* purposes. Do not use in 
 
 ## Run development server with test data 
 
-IMPORTANT: note you need to pass the passwords you will use for the admin and postgraphql user to the install script, and also pass the password to npm start as environment variable ``ADMINPASS``
+IMPORTANT: 
 
 ````
 ./INSTALL [flingapp_admin_pass] [flingapp_postgraphql_pass]
@@ -19,9 +19,11 @@ npm install
 ADMINPASS=[flingapp_admin_pass] npm start
 ````
 
-## Notes
-- API server runs on port ``3001``. 
+## Install Notes
 - You must have postgreSQL running before running the install script.
+- If you use ``pg_ctl`` instead of ``homebrew install postgresql`` to initialise your postgreSQL server, you need to make sure that there is a default DB called ``postgres`` and that there is a superuser for your ``currentuser`` before running the install script. (postgreSQL on Homebrew for OSX creates a ``postgres`` db and sets your logged in user as a superuser.)
+- you need to pass the passwords you will use for the admin and postgraphql user to the install script, and also pass the password to npm start as environment variable ``ADMINPASS``
+- API server runs on port ``3001``. 
 - You'll need to open a port on your server firewall ``3001`` using ``ufw`` or put the server behind a reverse proxy.
 - You'll need a ``.env`` file with the sparkpost API key. Without it, emailing from queue jobs will not work
 

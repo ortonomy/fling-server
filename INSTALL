@@ -20,11 +20,11 @@ echo
 echo "1. flingapp_admin"
 echo 
 ROLE1="CREATE ROLE flingapp_admin WITH SUPERUSER LOGIN PASSWORD '${1}';"
-psql -c "${ROLE1}"
+psql -d postgres -c "${ROLE1}"
 echo
 echo "2. flingapp_postgraphql"
 echo
-psql -c "CREATE ROLE flingapp_postgraphql WITH LOGIN PASSWORD '${2}';"
+psql -d postgres -c "CREATE ROLE flingapp_postgraphql WITH LOGIN PASSWORD '${2}';"
 echo
 echo "3. flingapp_user"
 createuser flingapp_user -e
