@@ -1614,6 +1614,8 @@ COMMENT ON FUNCTION flingapp_private.is_empty(TEXT) IS 'Find empty strings or st
 
 
 
+
+
 -- ***** AUTH *****
 
 -- 1. REGISTER a user
@@ -2075,6 +2077,7 @@ CREATE TRIGGER proj_updated_at BEFORE UPDATE
   ON flingapp.project
   FOR EACH ROW
   EXECUTE PROCEDURE flingapp_private.set_updated_at();
+
 
 
 
